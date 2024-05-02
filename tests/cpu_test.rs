@@ -301,6 +301,88 @@ fn rts() {
   run_opcode_tests("60");
 }
 
+#[test]
+fn sbc() {
+  run_opcode_tests("e9");
+  run_opcode_tests("e5");
+  run_opcode_tests("f5");
+  run_opcode_tests("ed");
+  run_opcode_tests("fd");
+  run_opcode_tests("f9");
+  run_opcode_tests("e1");
+  run_opcode_tests("f1");
+}
+
+#[test]
+fn sec() {
+  run_opcode_tests("38");
+}
+
+#[test]
+fn sed() {
+  run_opcode_tests("f8");
+}
+
+#[test]
+fn sei() {
+  run_opcode_tests("78");
+}
+
+#[test]
+fn sta() {
+  run_opcode_tests("85");
+  run_opcode_tests("95");
+  run_opcode_tests("8d");
+  run_opcode_tests("9d");
+  run_opcode_tests("99");
+  run_opcode_tests("81");
+  run_opcode_tests("91");
+}
+
+#[test]
+fn stx() {
+  run_opcode_tests("86");
+  run_opcode_tests("96");
+  run_opcode_tests("8e");
+}
+
+#[test]
+fn sty() {
+  run_opcode_tests("84");
+  run_opcode_tests("94");
+  run_opcode_tests("8c");
+}
+
+#[test]
+fn tax() {
+  run_opcode_tests("aa");
+}
+
+#[test]
+fn tay() {
+  run_opcode_tests("a8");
+}
+
+#[test]
+fn tsx() {
+  run_opcode_tests("ba");
+}
+
+#[test]
+fn txa() {
+  run_opcode_tests("8a");
+}
+
+#[test]
+fn txs() {
+  run_opcode_tests("9a");
+}
+
+#[test]
+fn tya() {
+  run_opcode_tests("98");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
