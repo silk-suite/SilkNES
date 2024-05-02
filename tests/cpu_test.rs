@@ -46,6 +46,52 @@ fn bcc() {
   run_opcode_tests("90");
 }
 
+#[test]
+fn bcs() {
+  run_opcode_tests("b0");
+}
+
+#[test]
+fn beq() {
+  run_opcode_tests("f0");
+}
+
+#[test]
+fn bit() {
+  run_opcode_tests("24");
+  run_opcode_tests("2c");
+}
+
+#[test]
+fn bmi() {
+  run_opcode_tests("30");
+}
+
+#[test]
+fn bne() {
+  run_opcode_tests("d0");
+}
+
+#[test]
+fn bpl() {
+  run_opcode_tests("10");
+}
+
+#[test]
+fn brk() {
+  run_opcode_tests("00");
+}
+
+#[test]
+fn bvc() {
+  run_opcode_tests("50");
+}
+
+#[test]
+fn bvs() {
+  run_opcode_tests("70");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
