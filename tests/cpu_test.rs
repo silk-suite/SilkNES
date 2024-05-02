@@ -41,6 +41,11 @@ fn asl() {
   run_opcode_tests("1e");
 }
 
+#[test]
+fn bcc() {
+  run_opcode_tests("90");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
@@ -66,7 +71,7 @@ fn run_opcode_tests(filename: &str) {
   }
 
   for i in 0..json.as_array().unwrap().len() {
-    //println!("Running test {} of opcode {}", i, filename);
+    println!("Running test {} of opcode {}", i, filename);
     // Extract the values we need from the JSON
     let entry = &*json.get(i).unwrap();
     let initial = entry.get("initial").unwrap();

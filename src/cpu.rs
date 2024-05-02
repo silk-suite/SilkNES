@@ -527,7 +527,7 @@ impl NES6502 {
 
     if !self.flags.carry {
       self.cycles += 1;
-      self.current_address_abs = self.pc + self.current_address_rel;
+      self.current_address_abs = self.pc.wrapping_add(self.current_address_rel);
 
       if (self.current_address_abs & 0xFF00) != (self.pc & 0xFF00) {
         // Crossed page boundary, add an additional clock cycle
