@@ -864,12 +864,12 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    self.pc -= 1;
+    self.pc = self.pc.wrapping_sub(1);
 
     self.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8 & 0x00FF);
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
     self.write(0x0100 + self.sp as u16, self.pc as u8 & 0x00FF);
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
 
     self.pc = self.current_address_abs;
   }

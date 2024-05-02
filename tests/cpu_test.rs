@@ -186,6 +186,17 @@ fn iny() {
   run_opcode_tests("c8");
 }
 
+#[test]
+fn jmp() {
+  run_opcode_tests("4c");
+  run_opcode_tests("6c");
+}
+
+#[test]
+fn jsr() {
+  run_opcode_tests("20");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
