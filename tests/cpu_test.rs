@@ -112,6 +112,32 @@ fn clv() {
   run_opcode_tests("b8");
 }
 
+#[test]
+fn cmp() {
+  run_opcode_tests("c9");
+  run_opcode_tests("c5");
+  run_opcode_tests("d5");
+  run_opcode_tests("cd");
+  run_opcode_tests("dd");
+  run_opcode_tests("d9");
+  run_opcode_tests("c1");
+  run_opcode_tests("d1");
+}
+
+#[test]
+fn cpx() {
+  run_opcode_tests("e0");
+  run_opcode_tests("e4");
+  run_opcode_tests("ec");
+}
+
+#[test]
+fn cpy() {
+  run_opcode_tests("c0");
+  run_opcode_tests("c4");
+  run_opcode_tests("cc");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();

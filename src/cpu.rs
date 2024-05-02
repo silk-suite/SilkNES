@@ -737,9 +737,11 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
+    let temp = self.a.wrapping_sub(self.fetched_data);
+
     self.flags.carry = self.a >= self.fetched_data;
-    self.flags.zero = ((self.a - self.fetched_data) & 0x00FF) == 0;
-    self.flags.negative = (self.a - self.fetched_data) & 0x80 != 0;
+    self.flags.zero = (temp & 0x00FF) == 0;
+    self.flags.negative = temp & 0x80 != 0;
   }
 
   /// Compare the contents of the X register with another value in memory
@@ -747,9 +749,11 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
+    let temp = self.x.wrapping_sub(self.fetched_data);
+
     self.flags.carry = self.x >= self.fetched_data;
-    self.flags.zero = ((self.x - self.fetched_data) & 0x00FF) == 0;
-    self.flags.negative = (self.x - self.fetched_data) & 0x80 != 0;
+    self.flags.zero = (temp & 0x00FF) == 0;
+    self.flags.negative = temp & 0x80 != 0;
   }
 
   /// Compare the contents of the Y register with another value in memory
@@ -757,9 +761,11 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
+    let temp = self.y.wrapping_sub(self.fetched_data);
+
     self.flags.carry = self.y >= self.fetched_data;
-    self.flags.zero = ((self.y - self.fetched_data) & 0x00FF) == 0;
-    self.flags.negative = (self.y - self.fetched_data) & 0x80 != 0;
+    self.flags.zero = (temp & 0x00FF) == 0;
+    self.flags.negative = temp & 0x80 != 0;
   }
 
   /// Decrement value stored at memory address by 1
