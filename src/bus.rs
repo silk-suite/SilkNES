@@ -1,16 +1,29 @@
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::cartridge;
 use crate::Cartridge;
 use crate::NES6502;
 use crate::PPU;
+
+pub trait BusLike {
+  fn connect_cpu(&mut self, cpu: Rc<RefCell<NES6502>>);
+  fn connect_ppu(&mut self, ppu: Rc<RefCell<PPU>>);
+  fn insert_cartridge(&mut self, cartridge: Rc<RefCell<Cartridge>>);
+  fn cpu_read(&self, address: u16) -> u8;
+  fn cpu_write(&mut self, address: u16, data: u8);
+  fn reset(&mut self);
+  fn dump_ram(&self);
+  fn get_global_cycles(&self) -> u32;
+  fn set_global_cycles(&mut self, cycles: u32);
+}
 
 pub struct Bus {
   cpu: Option<Rc<RefCell<NES6502>>>,
   cpu_ram: Vec<u8>,
   ppu: Option<Rc<RefCell<PPU>>>,
   cartridge: Option<Rc<RefCell<Cartridge>>>,
+  pub global_cycles: u32,
 }
 
 impl Bus {
@@ -20,33 +33,39 @@ impl Bus {
       cpu_ram: vec![0; 2048],
       ppu: None,
       cartridge: None,
+      global_cycles: 0,
     }
   }
+}
 
-  pub fn connect_cpu(&mut self, cpu: Rc<RefCell<NES6502>>) {
+impl BusLike for Bus {
+  fn connect_cpu(&mut self, cpu: Rc<RefCell<NES6502>>) {
     self.cpu = Some(cpu);
   }
 
-  pub fn connect_ppu(&mut self, ppu: Rc<RefCell<PPU>>) {
+  fn connect_ppu(&mut self, ppu: Rc<RefCell<PPU>>) {
     self.ppu = Some(ppu);
   }
 
-  pub fn insert_cartridge(&mut self, cartridge: Rc<RefCell<Cartridge>>) {
-    self.cartridge = Some(cartridge);
+  fn insert_cartridge(&mut self, cartridge: Rc<RefCell<Cartridge>>) {
+    self.cartridge = Some(Rc::clone(&cartridge));
+    if let Some(ppu) = &self.ppu {
+      ppu.as_ref().borrow_mut().connect_cartridge(Rc::clone(&cartridge));
+    }
   }
 
-  pub fn cpu_read(&self, address: u16) -> u8 {
+  fn cpu_read(&self, address: u16) -> u8 {
     let mut data = 0_u8;
 
-    if address >= 0x0000 && address <= 0x1FFF {
+    if address <= 0x1FFF {
       data = self.cpu_ram[(address & 0x07FF) as usize];
     } else if address >= 0x2000 && address <= 0x3FFF {
       if let Some(ppu) = &self.ppu {
-        data = ppu.borrow().cpu_read(address);
+        data = ppu.as_ref().borrow_mut().cpu_read(address & 0x0007);
       }
-    } else if address >= 0x8000 && address <= 0xFFFF {
+    } else if address >= 0x8000 {
       if let Some(cartridge) = &self.cartridge {
-        data = cartridge.borrow().mapped_cpu_read(address);
+        data = cartridge.as_ref().borrow().cpu_read(address);
       }
     } else {
       data = 0;
@@ -55,17 +74,76 @@ impl Bus {
     data
   }
 
-  pub fn cpu_write(&mut self, address: u16, value: u8) {
-    if address >= 0x0000 && address <= 0x1FFF {
+  fn cpu_write(&mut self, address: u16, value: u8) {
+    if address <= 0x1FFF {
       self.cpu_ram[(address & 0x07FF) as usize] = value;
     } else if address >= 0x2000 && address <= 0x3FFF {
       if let Some(ppu) = &self.ppu {
-        ppu.borrow_mut().cpu_write(address, value);
+        ppu.as_ref().borrow_mut().cpu_write(address & 0x0007, value);
       }
     }
   }
 
-  pub fn dump_ram(&self) {
+  fn reset(&mut self) {
+    if let Some(cpu) = self.cpu.borrow() {
+      cpu.as_ref().borrow_mut().reset();
+    }
+  }
+
+  fn dump_ram(&self) {
     println!("{:X?}", self.cpu_ram);
   }
+
+  fn get_global_cycles(&self) -> u32 {
+    self.global_cycles
+  }
+
+  fn set_global_cycles(&mut self, cycles: u32) {
+    self.global_cycles = cycles;
+  }
+}
+
+#[cfg(test)]
+pub struct MockBus {
+  pub cpu: Option<Rc<RefCell<NES6502>>>,
+  pub ppu: Option<Rc<RefCell<PPU>>>,
+  pub cartridge: Option<Rc<RefCell<Cartridge>>>,
+}
+
+#[cfg(test)]
+impl MockBus {
+  pub fn new() -> Self {
+    Self {
+      cpu: None,
+      ppu: None,
+      cartridge: None,
+    }
+  }
+}
+
+#[cfg(test)]
+impl BusLike for MockBus {
+  fn connect_cpu(&mut self, cpu: Rc<RefCell<NES6502>>) {
+    self.cpu = Some(cpu);
+  }
+
+  fn connect_ppu(&mut self, ppu: Rc<RefCell<PPU>>) {}
+
+  fn insert_cartridge(&mut self, cartridge: Rc<RefCell<Cartridge>>) {}
+
+  fn cpu_read(&self, address: u16) -> u8 {
+    0
+  }
+
+  fn cpu_write(&mut self, address: u16, value: u8) {}
+
+  fn reset(&mut self) {}
+
+  fn dump_ram(&self) {}
+
+  fn get_global_cycles(&self) -> u32 {
+    0
+  }
+
+  fn set_global_cycles(&mut self, cycles: u32) {}
 }

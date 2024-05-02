@@ -1,4 +1,4 @@
-use crate::bus::Bus;
+use crate::bus::BusLike;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -73,11 +73,11 @@ pub struct NES6502 {
   pub pc: u16,
   pub flags: Flags,
   pub cycles: usize,
-  pub bus: Option<Rc<RefCell<Bus>>>,
+  pub bus: Option<Rc<RefCell<Box<dyn BusLike>>>>,
   pub fetched_data: u8,
   pub current_address_abs: u16,
   pub current_address_rel: u16,
-  pub total_cycles: u16,
+  pub total_cycles: u32,
 }
 
 impl NES6502 {
@@ -98,35 +98,16 @@ impl NES6502 {
     }
   }
 
-  pub fn connect_to_bus(&mut self, bus: Rc<RefCell<Bus>>) {
+  pub fn connect_to_bus(&mut self, bus: Rc<RefCell<Box<dyn BusLike>>>) {
     self.bus = Some(bus);
-  }
-
-  pub fn reset(&mut self) {
-    self.current_address_abs = 0xFFFC;
-    let low = self.read(self.current_address_abs) as u16;
-    let high = self.read(self.current_address_abs + 1) as u16;
-    self.pc = (high << 8) | low;
-
-    self.a = 0;
-    self.x = 0;
-    self.y = 0;
-    self.sp = 0xFD;
-    self.flags = Default::default();
-
-    self.current_address_abs = 0x0000;
-    self.current_address_rel = 0x0000;
-    self.fetched_data = 0x00;
-
-    self.cycles = 8;
   }
 
   pub fn step(&mut self) {
     self.total_cycles += 1;
     if self.cycles == 0 {
-      println!("Total cycles: {}", self.total_cycles);
+      //println!("Total cycles: {}", self.total_cycles);
       let opcode = self.read(self.pc);
-      println!("PC: {:#04X}, opcode: {:02X}", self.pc, opcode);
+      //println!("PC: {:#04X}, opcode: {:02X}", self.pc, opcode);
       self.pc += 1;
 
       match opcode {
@@ -471,8 +452,8 @@ impl NES6502 {
         let table = self.read(self.pc) as u16;
         self.pc += 1;
 
-        let low = self.read(table) as u16 & 0x00FF;
-        let high = self.read(table + 1) as u16 & 0x00FF;
+        let low = self.read((table as u16) & 0x00FF) as u16;
+        let high = self.read((table + 1) as u16 & 0x00FF) as u16;
 
         self.current_address_abs = (high << 8) | low;
         self.current_address_abs += self.y as u16;
@@ -507,6 +488,7 @@ impl NES6502 {
   fn and(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
+
     self.a &= self.fetched_data;
 
     self.flags.zero = self.a == 0;
@@ -592,7 +574,7 @@ impl NES6502 {
 
     let temp = self.a & self.fetched_data;
 
-    self.flags.zero = temp == 0;
+    self.flags.zero = (temp & 0x00FF) == 0;
     self.flags.overflow = temp & 0x40 != 0;
     self.flags.negative = temp & 0x80 != 0;
   }
@@ -746,7 +728,7 @@ impl NES6502 {
     self.fetch(mode);
 
     self.flags.carry = self.a >= self.fetched_data;
-    self.flags.zero = (self.a - self.fetched_data) == 0;
+    self.flags.zero = ((self.a - self.fetched_data) & 0x00FF) == 0;
     self.flags.negative = (self.a - self.fetched_data) & 0x80 != 0;
   }
 
@@ -756,7 +738,7 @@ impl NES6502 {
     self.fetch(mode);
 
     self.flags.carry = self.x >= self.fetched_data;
-    self.flags.zero = (self.x - self.fetched_data) == 0;
+    self.flags.zero = ((self.x - self.fetched_data) & 0x00FF) == 0;
     self.flags.negative = (self.x - self.fetched_data) & 0x80 != 0;
   }
 
@@ -766,7 +748,7 @@ impl NES6502 {
     self.fetch(mode);
 
     self.flags.carry = self.y >= self.fetched_data;
-    self.flags.zero = (self.y - self.fetched_data) == 0;
+    self.flags.zero = ((self.y - self.fetched_data) & 0x00FF) == 0;
     self.flags.negative = (self.y - self.fetched_data) & 0x80 != 0;
   }
 
@@ -777,10 +759,10 @@ impl NES6502 {
 
     // Make this better later
     let mut value = self.read(self.current_address_abs);
-    self.write(self.current_address_abs, value.wrapping_sub(1));
+    self.write(self.current_address_abs, value.wrapping_sub(1) & 0x00FF);
     value = self.read(self.current_address_abs);
 
-    self.flags.zero = value == 0;
+    self.flags.zero = (value & 0x00FF) == 0;
     self.flags.negative = (value & 0x80) != 0;
   }
 
@@ -918,7 +900,7 @@ impl NES6502 {
     let value = (original_value >> 1) as u8;
 
     self.flags.carry = (original_value & 0x01) != 0;
-    self.flags.zero = value == 0;
+    self.flags.zero = (value & 0x00FF) == 0;
     self.flags.negative = (value & 0x80) != 0;
 
     if mode == AddressingMode::Implied {
@@ -1177,4 +1159,65 @@ impl NES6502 {
   }
 
   // endregion: Instructions
+
+  pub fn reset(&mut self) {
+    self.current_address_abs = 0xFFFC;
+    let low = self.read(self.current_address_abs) as u16;
+    let high = self.read(self.current_address_abs + 1) as u16;
+    self.pc = (high << 8) | low;
+
+    self.a = 0;
+    self.x = 0;
+    self.y = 0;
+    self.sp = 0xFD;
+    self.flags = Default::default();
+
+    self.current_address_abs = 0x0000;
+    self.current_address_rel = 0x0000;
+    self.fetched_data = 0x00;
+
+    self.cycles = 8;
+  }
+
+  pub fn irq(&mut self) {
+    if !self.flags.interrupt_disable {
+      self.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+      self.sp -= 1;
+      self.write(0x0100 + self.sp as u16, (self.pc & 0x00FF) as u8);
+      self.sp -= 1;
+
+      self.flags.break_command = false;
+      self.flags.interrupt_disable = true;
+
+      self.write(0x0100 + self.sp as u16, self.flags.to_u8());
+      self.sp -= 1;
+
+      self.current_address_abs = 0xFFFE;
+      let low = self.read(self.current_address_abs) as u16;
+      let high = self.read(self.current_address_abs + 1) as u16;
+      self.pc = (high << 8) | low;
+
+      self.cycles = 7;
+    }
+  }
+
+  pub fn nmi(&mut self) {
+    self.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+    self.sp -= 1;
+    self.write(0x0100 + self.sp as u16, (self.pc & 0x00FF) as u8);
+    self.sp -= 1;
+
+    self.flags.break_command = false;
+    self.flags.interrupt_disable = true;
+
+    self.write(0x0100 + self.sp as u16, self.flags.to_u8());
+    self.sp -= 1;
+
+    self.current_address_abs = 0xFFFA;
+    let low = self.read(self.current_address_abs) as u16;
+    let high = self.read(self.current_address_abs + 1) as u16;
+    self.pc = (high << 8) | low;
+
+    self.cycles = 8;
+  }
 }
