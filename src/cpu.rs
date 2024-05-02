@@ -648,15 +648,18 @@ impl NES6502 {
     self.pc += 1;
 
     // Push the program counter onto the stack
-    self.flags.interrupt_disable = true;
     self.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8 & 0x00FF);
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
     self.write(0x0100 + self.sp as u16, (self.pc & 0x00FF) as u8);
+    self.sp = self.sp.wrapping_sub(1);
 
+    // Write the status flags onto the stack
     self.flags.break_command = true;
     self.write(0x0100 + self.sp as u16, self.flags.to_u8());
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
     self.flags.break_command = false;
+
+    self.flags.interrupt_disable = true;
 
     self.pc = self.read(0xFFFE) as u16 | ((self.read(0xFFFF) as u16) << 8) as u16;
   }
