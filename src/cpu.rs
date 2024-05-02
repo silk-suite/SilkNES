@@ -371,7 +371,7 @@ impl NES6502 {
       },
       // Index into the zero page with Y offset
       AddressingMode::ZeroPageY => {
-        self.current_address_abs = (self.read(self.pc) + self.y) as u16;
+        self.current_address_abs = (self.read(self.pc).wrapping_add(self.y)) as u16;
         self.pc = self.pc.wrapping_add(1);
         self.current_address_abs &= 0x00FF;
       },
