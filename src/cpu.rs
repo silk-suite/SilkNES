@@ -787,7 +787,7 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    self.x -= 1;
+    self.x = self.x.wrapping_sub(1);
 
     self.flags.zero = self.x == 0;
     self.flags.negative = (self.x & 0x80) != 0;
@@ -798,7 +798,7 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    self.y -= 1;
+    self.y = self.y.wrapping_sub(1);
 
     self.flags.zero = self.y == 0;
     self.flags.negative = (self.y & 0x80) != 0;

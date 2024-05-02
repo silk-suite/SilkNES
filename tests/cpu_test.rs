@@ -138,6 +138,24 @@ fn cpy() {
   run_opcode_tests("cc");
 }
 
+#[test]
+fn dec() {
+  run_opcode_tests("c6");
+  run_opcode_tests("d6");
+  run_opcode_tests("ce");
+  run_opcode_tests("de");
+}
+
+#[test]
+fn dex() {
+  run_opcode_tests("ca");
+}
+
+#[test]
+fn dey() {
+  run_opcode_tests("88");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
