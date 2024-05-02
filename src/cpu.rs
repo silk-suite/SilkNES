@@ -54,6 +54,7 @@ impl Flags {
   }
 
   pub fn from_u8(byte: u8) -> Self {
+    println!("Settings flags from {:08b}", byte);
     Self {
       carry: (byte & (1 << 0)) != 0,
       zero: (byte & (1 << 1)) != 0,
@@ -949,7 +950,7 @@ impl NES6502 {
     self.fetch(mode);
 
     self.write(0x0100 + self.sp as u16, self.a);
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
   }
 
   /// Pushes a copy of the status flags on to the stack.
@@ -957,8 +958,10 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
+    self.flags.break_command = true;
     self.write(0x0100 + self.sp as u16, self.flags.to_u8());
-    self.sp -= 1;
+    self.flags.break_command = false;
+    self.sp = self.sp.wrapping_sub(1);
   }
 
   /// Pulls an 8 bit value from the stack and into the accumulator.
@@ -966,7 +969,7 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    self.sp += 1;
+    self.sp = self.sp.wrapping_add(1);
     self.a = self.read(0x0100 + self.sp as u16);
 
     self.flags.zero = self.a == 0;
@@ -978,8 +981,9 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    self.sp += 1;
+    self.sp = self.sp.wrapping_add(1);
     self.flags = Flags::from_u8(self.read(0x0100 + self.sp as u16));
+    self.flags.break_command = false;
   }
 
   /// Move each of the bits in either A or M one place to the left.

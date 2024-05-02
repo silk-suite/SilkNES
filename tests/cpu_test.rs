@@ -253,6 +253,26 @@ fn ora() {
   run_opcode_tests("11");
 }
 
+#[test]
+fn pha() {
+  run_opcode_tests("48");
+}
+
+#[test]
+fn php() {
+  run_opcode_tests("08");
+}
+
+#[test]
+fn pla() {
+  run_opcode_tests("68");
+}
+
+#[test]
+fn plp() {
+  run_opcode_tests("28");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
