@@ -1,9 +1,9 @@
-mod bus;
-mod cartridge;
-mod cpu;
-mod ppu;
-mod mapper;
-mod mapper0;
+pub mod bus;
+pub mod cartridge;
+pub mod cpu;
+pub mod ppu;
+pub mod mapper;
+pub mod mapper0;
 
 use bus::{Bus, BusLike};
 use cartridge::Cartridge;

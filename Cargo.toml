@@ -7,10 +7,10 @@ edition = "2021"
 name = "nesilk"
 path = "src/main.rs"
 
-# [lib]
-# crate-type = ["cdylib", "rlib"]
-# name = "nesilk_web"
-# path = "src/nesilk.rs"
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "nesilk_lib"
+path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

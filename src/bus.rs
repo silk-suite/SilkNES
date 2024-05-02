@@ -13,7 +13,7 @@ pub trait BusLike {
   fn cpu_read(&self, address: u16) -> u8;
   fn cpu_write(&mut self, address: u16, data: u8);
   fn reset(&mut self);
-  fn dump_ram(&self);
+  fn dump_ram(&self) -> Vec<u8>;
   fn get_global_cycles(&self) -> u32;
   fn set_global_cycles(&mut self, cycles: u32);
 }
@@ -90,8 +90,9 @@ impl BusLike for Bus {
     }
   }
 
-  fn dump_ram(&self) {
+  fn dump_ram(&self) -> Vec<u8> {
     println!("{:X?}", self.cpu_ram);
+    vec![]
   }
 
   fn get_global_cycles(&self) -> u32 {
@@ -103,25 +104,20 @@ impl BusLike for Bus {
   }
 }
 
-#[cfg(test)]
 pub struct MockBus {
   pub cpu: Option<Rc<RefCell<NES6502>>>,
-  pub ppu: Option<Rc<RefCell<PPU>>>,
-  pub cartridge: Option<Rc<RefCell<Cartridge>>>,
+  pub cpu_ram: Vec<u8>,
 }
 
-#[cfg(test)]
 impl MockBus {
   pub fn new() -> Self {
     Self {
       cpu: None,
-      ppu: None,
-      cartridge: None,
+      cpu_ram: vec![0; 0x10000],
     }
   }
 }
 
-#[cfg(test)]
 impl BusLike for MockBus {
   fn connect_cpu(&mut self, cpu: Rc<RefCell<NES6502>>) {
     self.cpu = Some(cpu);
@@ -132,14 +128,18 @@ impl BusLike for MockBus {
   fn insert_cartridge(&mut self, cartridge: Rc<RefCell<Cartridge>>) {}
 
   fn cpu_read(&self, address: u16) -> u8 {
-    0
+    self.cpu_ram[address as usize]
   }
 
-  fn cpu_write(&mut self, address: u16, value: u8) {}
+  fn cpu_write(&mut self, address: u16, value: u8) {
+    self.cpu_ram[address as usize] = value;
+  }
 
   fn reset(&mut self) {}
 
-  fn dump_ram(&self) {}
+  fn dump_ram(&self) -> Vec<u8> {
+    self.cpu_ram.clone()
+  }
 
   fn get_global_cycles(&self) -> u32 {
     0

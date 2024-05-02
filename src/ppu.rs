@@ -235,13 +235,11 @@ impl PPU {
   pub fn cpu_write(&mut self, address: u16, value: u8) {
     match address {
       0x0000 => {
-        println!("CTRL: {:#02b}", value);
         self.registers.ctrl.set_from_u8(value);
         self.registers.internal.t.nametable_x = self.registers.ctrl.nametable_x;
         self.registers.internal.t.nametable_y = self.registers.ctrl.nametable_y;
       },
       0x0001 => {
-        //println!("MASK: {:#02b}", value);
         self.registers.mask.set_from_u8(value);
       },
       0x0002 => {
@@ -271,7 +269,6 @@ impl PPU {
         }
       },
       0x0007 => { // DATA
-        //println!("Writing {:04X} to {:04X}", value, self.registers.internal.v.address);
         self.ppu_write(self.registers.internal.v.address, value);
         self.registers.internal.v.address += if self.registers.ctrl.increment_mode { 32 } else { 1 };
       },
@@ -528,9 +525,9 @@ impl PPU {
         self.screen[index] = bg_pixel;
         if self.scanline_count == 239 && self.cycle_count == 255 {
           self.screen[index] = 1;
-          println!("VRAM ADDRESS: {:04X}", self.registers.internal.v.address);
-          println!("DUMPING NONZERO NAMETABLE VALUES");
-          println!("{:02X?}", self.nametables.iter().filter(|x| **x != 0).collect::<Vec<&u8>>());
+          // println!("VRAM ADDRESS: {:04X}", self.registers.internal.v.address);
+          // println!("DUMPING NONZERO NAMETABLE VALUES");
+          // println!("{:02X?}", self.nametables.iter().filter(|x| **x != 0).collect::<Vec<&u8>>());
         }
       }
     }

@@ -48,6 +48,7 @@ impl Flags {
     (self.interrupt_disable as u8) << 2 |
     (self.decimal_mode as u8) << 3 |
     (self.break_command as u8) << 4 |
+    1 << 5 |
     (self.overflow as u8) << 6 |
     (self.negative as u8) << 7
   }
@@ -107,8 +108,8 @@ impl NES6502 {
     if self.cycles == 0 {
       //println!("Total cycles: {}", self.total_cycles);
       let opcode = self.read(self.pc);
-      //println!("PC: {:#04X}, opcode: {:02X}", self.pc, opcode);
-      self.pc += 1;
+      println!("PC: {:#04X}, opcode: {:02X}", self.pc, opcode);
+      self.pc = self.pc.wrapping_add(1);
 
       match opcode {
         // ADC
@@ -353,30 +354,30 @@ impl NES6502 {
       },
       // The data is immediately available in the following byte
       AddressingMode::Immediate => {
-        self.current_address_abs = self.pc + 1;
-        self.pc += 1;
+        self.current_address_abs = self.pc;
+        self.pc = self.pc.wrapping_add(1);
       },
       // Addressing 0x0000 to 0x00FF only
       AddressingMode::ZeroPage => {
         self.current_address_abs = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         self.current_address_abs &= 0x00FF;
       },
       // Index into the zero page with X offset
       AddressingMode::ZeroPageX => {
-        self.current_address_abs = (self.read(self.pc) + self.x) as u16;
-        self.pc += 1;
+        self.current_address_abs = (self.read(self.pc).wrapping_add(self.x)) as u16 % 0xFFFF;
+        self.pc = self.pc.wrapping_add(1);
         self.current_address_abs &= 0x00FF;
       },
       // Index into the zero page with Y offset
       AddressingMode::ZeroPageY => {
         self.current_address_abs = (self.read(self.pc) + self.y) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         self.current_address_abs &= 0x00FF;
       },
       AddressingMode::Relative => {
         self.current_address_rel = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         // Check if relative address is negative
         if self.current_address_rel & 0x80 != 0 {
@@ -386,21 +387,21 @@ impl NES6502 {
       // Read the next two bytes as a 16-bit address
       AddressingMode::Absolute => {
         let low = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         let high = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         self.current_address_abs = (high << 8) | low;
       },
       // Read the next two bytes as a 16-bit address, and add X offset
       AddressingMode::AbsoluteX => {
         let low = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         let high = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         self.current_address_abs = (high << 8) | low;
-        self.current_address_abs += self.x as u16;
+        self.current_address_abs = self.current_address_abs.wrapping_add(self.x as u16);
 
         if (self.current_address_abs & 0xFF00) != (high << 8) {
           // Crossed page boundary, add an additional clock cycle
@@ -410,12 +411,12 @@ impl NES6502 {
       // Read the next two bytes as a 16-bit address, and add Y offset
       AddressingMode::AbsoluteY => {
         let low = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         let high = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         self.current_address_abs = (high << 8) | low;
-        self.current_address_abs += self.y as u16;
+        self.current_address_abs = self.current_address_abs.wrapping_add(self.y as u16);
 
         if (self.current_address_abs & 0xFF00) != (high << 8) {
           // Crossed page boundary, add an additional clock cycle
@@ -424,9 +425,9 @@ impl NES6502 {
       },
       AddressingMode::Indirect => {
         let ptr_low = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         let ptr_high = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         let ptr = (ptr_high << 8) | ptr_low;
 
@@ -438,25 +439,27 @@ impl NES6502 {
         }
       },
       // Index into address table on the zero page and offset by X
+      // val = PEEK(PEEK((arg + X) % 256) + PEEK((arg + X + 1) % 256) * 256)
       AddressingMode::IndexedIndirect => {
-        let table = self.read(self.pc) as u16;
-        self.pc += 1;
+        let operand = self.read(self.pc) as u16;
+        self.pc = self.pc.wrapping_add(1);
 
-        let low = self.read(table + self.x as u16) as u16 & 0x00FF;
-        let high = self.read(table + self.x as u16 + 1) as u16 & 0x00FF;
+        let low = self.read((operand.wrapping_add(self.x as u16)) & 0xFF) as u16;
+        let high = self.read((operand.wrapping_add(self.x as u16 + 1)) & 0xFF) as u16;
 
         self.current_address_abs = (high << 8) | low;
       },
       // Index into the zero page, read 16-bit address, and add Y offset to it
+      // val = PEEK(PEEK(arg) + PEEK((arg + 1) % 256) * 256 + Y)
       AddressingMode::IndirectIndexed => {
         let table = self.read(self.pc) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         let low = self.read((table as u16) & 0x00FF) as u16;
-        let high = self.read((table + 1) as u16 & 0x00FF) as u16;
+        let high = self.read((table.wrapping_add(1)) as u16 & 0x00FF) as u16;
 
         self.current_address_abs = (high << 8) | low;
-        self.current_address_abs += self.y as u16;
+        self.current_address_abs = self.current_address_abs.wrapping_add(self.y as u16);
 
         if (self.current_address_abs & 0xFF00) != (high << 8) {
           // Crossed page boundary, add an additional clock cycle
@@ -488,6 +491,8 @@ impl NES6502 {
   fn and(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
+
+    println!("Fetched data: {}", self.fetched_data);
 
     self.a &= self.fetched_data;
 
