@@ -291,6 +291,16 @@ fn ror() {
   run_opcode_tests("7e");
 }
 
+#[test]
+fn rti() {
+  run_opcode_tests("40");
+}
+
+#[test]
+fn rts() {
+  run_opcode_tests("60");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();

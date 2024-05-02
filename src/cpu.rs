@@ -1028,14 +1028,15 @@ impl NES6502 {
     self.fetch(mode);
 
     // Pull status flags
-    self.sp += 1;
+    self.sp = self.sp.wrapping_add(1);
+    let break_prev = self.flags.break_command;
     self.flags = Flags::from_u8(self.read(0x0100 + self.sp as u16));
-    self.flags.break_command = !self.flags.break_command;
+    self.flags.break_command = break_prev;
 
     // Pull program counter
-    self.sp += 1;
+    self.sp = self.sp.wrapping_add(1);
     self.pc = self.read(0x0100 + self.sp as u16) as u16;
-    self.sp += 1;
+    self.sp = self.sp.wrapping_add(1);
     self.pc |= (self.read(0x0100 + self.sp as u16) as u16) << 8;
   }
 
@@ -1044,12 +1045,12 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    self.sp += 1;
+    self.sp = self.sp.wrapping_add(1);
     self.pc = self.read(0x0100 + self.sp as u16) as u16;
-    self.sp += 1;
+    self.sp = self.sp.wrapping_add(1);
     self.pc |= (self.read(0x0100 + self.sp as u16) as u16) << 8;
 
-    self.pc += 1;
+    self.pc = self.pc.wrapping_add(1);
   }
 
   /// Subtraction with carry
