@@ -168,6 +168,24 @@ fn eor() {
   run_opcode_tests("51");
 }
 
+#[test]
+fn inc() {
+  run_opcode_tests("e6");
+  run_opcode_tests("f6");
+  run_opcode_tests("ee");
+  run_opcode_tests("fe");
+}
+
+#[test]
+fn inx() {
+  run_opcode_tests("e8");
+}
+
+#[test]
+fn iny() {
+  run_opcode_tests("c8");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
