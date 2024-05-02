@@ -227,6 +227,32 @@ fn ldy() {
   run_opcode_tests("bc");
 }
 
+#[test]
+fn lsr() {
+  run_opcode_tests("4a");
+  run_opcode_tests("46");
+  run_opcode_tests("56");
+  run_opcode_tests("4e");
+  run_opcode_tests("5e");
+}
+
+#[test]
+fn nop() {
+  run_opcode_tests("ea");
+}
+
+#[test]
+fn ora() {
+  run_opcode_tests("09");
+  run_opcode_tests("05");
+  run_opcode_tests("15");
+  run_opcode_tests("0d");
+  run_opcode_tests("1d");
+  run_opcode_tests("19");
+  run_opcode_tests("01");
+  run_opcode_tests("11");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
