@@ -468,7 +468,9 @@ impl NES6502 {
       },
     }
 
-    self.fetched_data = self.read(self.current_address_abs);
+    if mode != AddressingMode::Implied {
+      self.fetched_data = self.read(self.current_address_abs);
+    }
   }
 
   // region: Instructions
@@ -505,7 +507,7 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    let value = (self.fetched_data << 1) as u16;
+    let value = (self.fetched_data as u16) << 1;
 
     self.flags.carry = value & 0xFF00 != 0;
     self.flags.zero = value & 0x00FF == 0;
