@@ -273,6 +273,24 @@ fn plp() {
   run_opcode_tests("28");
 }
 
+#[test]
+fn rol() {
+  run_opcode_tests("2a");
+  run_opcode_tests("26");
+  run_opcode_tests("36");
+  run_opcode_tests("2e");
+  run_opcode_tests("3e");
+}
+
+#[test]
+fn ror() {
+  run_opcode_tests("6a");
+  run_opcode_tests("66");
+  run_opcode_tests("76");
+  run_opcode_tests("6e");
+  run_opcode_tests("7e");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();

@@ -991,10 +991,10 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    let value = ((self.fetched_data << 1) | self.flags.carry as u8) as u16;
+    let value = (((self.fetched_data as u16) << 1) | self.flags.carry as u16) as u16;
 
-    self.flags.carry = value & 0xFF00 != 0;
-    self.flags.zero = value == 0;
+    self.flags.carry = (value & 0xFF00) != 0;
+    self.flags.zero = (value & 0x00FF) == 0;
     self.flags.negative = (value & 0x80) != 0;
 
     if mode == AddressingMode::Implied {
@@ -1009,9 +1009,9 @@ impl NES6502 {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
 
-    let value = ((self.flags.carry as u8) << 7) as u16 | (self.fetched_data >> 1) as u16;
+    let value = ((self.flags.carry as u16) << 7) as u16 | (self.fetched_data >> 1) as u16;
 
-    self.flags.carry = value & 0x01 != 0;
+    self.flags.carry = (self.fetched_data & 0x01) != 0;
     self.flags.zero = (value & 0x00FF) == 0;
     self.flags.negative = (value & 0x80) != 0;
 
