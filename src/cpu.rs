@@ -582,8 +582,8 @@ impl NES6502 {
     let temp = self.a & self.fetched_data;
 
     self.flags.zero = (temp & 0x00FF) == 0;
-    self.flags.overflow = temp & 0x40 != 0;
-    self.flags.negative = temp & 0x80 != 0;
+    self.flags.overflow = self.fetched_data & (1 << 6) != 0;
+    self.flags.negative = self.fetched_data & (1 << 7) != 0;
   }
 
   /// Branch if negative flag is set
