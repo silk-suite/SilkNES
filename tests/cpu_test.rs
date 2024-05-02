@@ -92,6 +92,26 @@ fn bvs() {
   run_opcode_tests("70");
 }
 
+#[test]
+fn clc() {
+  run_opcode_tests("18");
+}
+
+#[test]
+fn cld() {
+  run_opcode_tests("d8");
+}
+
+#[test]
+fn cli() {
+  run_opcode_tests("58");
+}
+
+#[test]
+fn clv() {
+  run_opcode_tests("b8");
+}
+
 fn run_opcode_tests(filename: &str) {
   let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
