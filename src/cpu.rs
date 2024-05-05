@@ -320,7 +320,7 @@ impl NES6502 {
         0x98 => self.tya(AddressingMode::Implied, 2),
         // Any other opcode gets caught here
         _ => {
-          println!("Invalid opcode: {}", opcode);
+          println!("Invalid opcode: {:2X}", opcode);
           self.cycles = 1;
         },
       }
