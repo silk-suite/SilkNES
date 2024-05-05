@@ -17,7 +17,7 @@ impl Cartridge {
     let bytes = fs::read(Path::new(rom_path)).expect(&format!("Failed to load ROM from supplied path: {}", rom_path));
     match parse_header(&bytes) {
       Ok(header_info) => {
-        let mapper_id = (header_info.flags6 & 0b1111_0000 >> 4) as u16 | (header_info.flags7 & 0b1111_0000) as u16;
+        let mapper_id = (header_info.flags6 & 0b1111_0000) >> 4 | (header_info.flags7 & 0b1111_0000);
         let mapper = match mapper_id {
           0 => Box::new(Mapper0::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
           _ => panic!("Mapper {} not implemented.", mapper_id),
@@ -41,7 +41,7 @@ impl Cartridge {
   pub fn from_bytes(rom_bytes: Vec<u8>) -> Self {
     match parse_header(&rom_bytes) {
       Ok(header_info) => {
-        let mapper_id = (header_info.flags6 & 0b1111_0000 >> 4) as u16 | (header_info.flags7 & 0b1111_0000) as u16;
+        let mapper_id = (header_info.flags6 & 0b1111_0000) >> 4 | (header_info.flags7 & 0b1111_0000);
         let mapper = match mapper_id {
           0 => Box::new(Mapper0::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
           _ => panic!("Mapper {} not implemented.", mapper_id),
@@ -52,7 +52,7 @@ impl Cartridge {
         let chr_end: u16 = chr_start + (0x2000 * header_info.chr_rom_size as u16);
         Self {
           header_info,
-          mapper_id: 0, // hardcode for now, will detect from ROM in future
+          mapper_id,
           prg_rom: rom_bytes[prg_start as usize..prg_end as usize].to_vec(),
           chr_rom: rom_bytes[chr_start as usize..chr_end as usize].to_vec(),
           mapper,
