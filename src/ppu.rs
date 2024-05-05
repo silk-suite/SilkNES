@@ -210,7 +210,10 @@ impl PPU {
         data
       },
       0x0003 => 0, // OAMADDR (not readable)
-      0x0004 => 0, // TODO: OAMDATA
+      0x0004 => { // OAMDATA
+        println!("TODO: OAMDATA READ");
+        0
+      },
       0x0005 => 0, // SCROLL (not readable)
       0x0006 => 0, // ADDR (not readable)
       0x0007 => { // DATA
@@ -246,8 +249,12 @@ impl PPU {
       0x0002 => {
         panic!("Cannot write to PPU status register");
       },
-      0x0003 => todo!(), // OAMADDR
-      0x0004 => todo!(), // OAMDATA
+      0x0003 => { // OAMADDR
+        println!("TODO: OAMADDR")
+      },
+      0x0004 => { // OAMDATA
+        println!("TODO: OAMDATA WRITE")
+      },
       0x0005 => { // SCROLL
         if !self.registers.internal.write_latch {
           self.registers.internal.fine_x = value & 0x07;
@@ -270,6 +277,10 @@ impl PPU {
         }
       },
       0x0007 => { // DATA
+        // if (self.registers.internal.v.address >= 0x2000) && (self.registers.internal.v.address <= 0x3EFF) && value != 0 {
+        //   println!("Writing value {:02X} to address {:04X}", value, self.registers.internal.v.address);
+        //   println!("{}", self.registers.ctrl.increment_mode);
+        // }
         self.ppu_write(self.registers.internal.v.address, value);
         let increment = if self.registers.ctrl.increment_mode { 32 } else { 1 };
         self.registers.internal.v.address = self.registers.internal.v.address.wrapping_add(increment);
@@ -327,7 +338,7 @@ impl PPU {
 
   // PPU is writing to PPU bus
   pub fn ppu_write(&mut self, address: u16, value: u8) {
-    let mut masked = address & 0x3FFF;
+    let mut masked = (address & 0x3FFF) as usize;
     let cartridge = if let Some(cartridge) = &self.cartridge {
       cartridge.borrow()
     } else {
@@ -335,25 +346,25 @@ impl PPU {
     };
 
     if masked <= 0x1FFF {
-      self.pattern[((masked & 0x1000) >> 12) as usize][(masked & 0x0FFF) as usize] = value;
+      self.pattern[(masked & 0x1000) >> 12][masked & 0x0FFF] = value;
     } else if masked >= 0x2000 && masked <= 0x3EFF {
       masked &= 0x0FFF;
       match cartridge.get_nametable_layout() {
         MirroringMode::Vertical => {
           match masked {
-            0x0000..=0x03FF => self.nametables[0][(masked & 0x03FF) as usize] = value,
-            0x0400..=0x07FF => self.nametables[1][(masked & 0x03FF) as usize] = value,
-            0x0800..=0x0BFF => self.nametables[0][(masked & 0x03FF) as usize] = value,
-            0x0C00..=0x0FFF => self.nametables[1][(masked & 0x03FF) as usize] = value,
+            0x0000..=0x03FF => self.nametables[0][masked & 0x03FF] = value,
+            0x0400..=0x07FF => self.nametables[1][masked & 0x03FF] = value,
+            0x0800..=0x0BFF => self.nametables[0][masked & 0x03FF] = value,
+            0x0C00..=0x0FFF => self.nametables[1][masked & 0x03FF] = value,
             _ => panic!("Invalid address for PPU write: {:#04X}", masked),
           }
         },
         MirroringMode::Horizontal => {
           match masked {
-            0x0000..=0x03FF => self.nametables[0][(masked & 0x03FF) as usize] = value,
-            0x0400..=0x07FF => self.nametables[0][(masked & 0x03FF) as usize] = value,
-            0x0800..=0x0BFF => self.nametables[1][(masked & 0x03FF) as usize] = value,
-            0x0C00..=0x0FFF => self.nametables[1][(masked & 0x03FF) as usize] = value,
+            0x0000..=0x03FF => self.nametables[0][masked & 0x03FF] = value,
+            0x0400..=0x07FF => self.nametables[0][masked & 0x03FF] = value,
+            0x0800..=0x0BFF => self.nametables[1][masked & 0x03FF] = value,
+            0x0C00..=0x0FFF => self.nametables[1][masked & 0x03FF] = value,
             _ => panic!("Invalid address for PPU write: {:#04X}", masked),
           }
         },
@@ -365,8 +376,8 @@ impl PPU {
         0x0018 => 0x0008,
         0x001C => 0x000C,
         _ => address & 0x001F,
-      };
-      self.palette[masked as usize] = value;
+      } as usize;
+      self.palette[masked] = value;
     } else {
       panic!("Invalid address for PPU write: {:#04X}", address);
     }

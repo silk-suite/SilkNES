@@ -105,14 +105,14 @@ fn main() {
                 // but the borrow checker is screwing me here so this is fine for now
                 for _ in 0..(341*262) { // Up the clock speed
                     ppu.borrow_mut().step();
+                    let cycles = bus.borrow().get_global_cycles();
+                    if cycles % 3 == 0 {
+                        cpu.borrow_mut().step();
+                    }
                     let nmi = ppu.borrow().nmi;
                     if nmi {
                         ppu.borrow_mut().nmi = false;
                         cpu.borrow_mut().nmi();
-                    }
-                    let cycles = bus.borrow().get_global_cycles();
-                    if cycles % 3 == 0 {
-                        cpu.borrow_mut().step();
                     }
                     bus.borrow_mut().set_global_cycles(cycles + 1);
                 }
@@ -124,10 +124,11 @@ fn main() {
 
                 for (pixel, &value) in frame.chunks_mut(4).zip(display.iter()) {
                     let color = match value {
+                        0 => [0, 0, 0, 255],
                         1 => [255, 255, 255, 255],
                         2 => [255, 0, 0, 255],
                         3 => [0, 255, 0, 255],
-                        _ => [0, 0, 0, 255],
+                        _ => [127, 127, 127, 255],
                     };
 
                     pixel.copy_from_slice(&color);
@@ -139,8 +140,9 @@ fn main() {
                 }
 
                 if bus.borrow().get_global_cycles() == (341*262) * 100 {
-                    let nt = ppu.borrow().nametables[0];
-                    println!("{:04X?}", nt);
+                    // let nt = ppu.borrow().nametables[0];
+                    // println!("{:02X?}", nt);
+                    //println!("{:?}", bus.borrow().dump_ram());
                     //elwt.exit();
                 }
             },
