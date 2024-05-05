@@ -103,22 +103,23 @@ fn main() {
                 // Run the emulation
                 // It would be nice to just eventually step the bus itself,
                 // but the borrow checker is screwing me here so this is fine for now
-                for _ in 0..(341*262) / 2 { // Up the clock speed
+                for _ in 0..(341*262) { // Up the clock speed
                     ppu.borrow_mut().step();
-                    let cycles = bus.borrow().get_global_cycles();
-                    if cycles % 3 == 0 {
-                        cpu.borrow_mut().step();
-                    }
                     let nmi = ppu.borrow().nmi;
                     if nmi {
                         ppu.borrow_mut().nmi = false;
                         cpu.borrow_mut().nmi();
+                    }
+                    let cycles = bus.borrow().get_global_cycles();
+                    if cycles % 3 == 0 {
+                        cpu.borrow_mut().step();
                     }
                     bus.borrow_mut().set_global_cycles(cycles + 1);
                 }
 
                 // Draw to screen
                 let display = ppu.borrow().get_screen();
+                let pattern_table = ppu.borrow().get_pattern_table(0);
                 let frame = pixels.frame_mut();
 
                 for (pixel, &value) in frame.chunks_mut(4).zip(display.iter()) {
@@ -137,14 +138,11 @@ fn main() {
                     elwt.exit();
                 }
 
-                if bus.borrow().get_global_cycles() > (341*262) * 25 {
+                if bus.borrow().get_global_cycles() == (341*262) * 100 {
+                    let nt = ppu.borrow().nametables[0];
+                    println!("{:04X?}", nt);
                     //elwt.exit();
                 }
-
-                // if bus.borrow().global_cycles == 200 {
-                //     println!("{:?}", display);
-                //     elwt.exit();
-                // }
             },
             _ => ()
         }

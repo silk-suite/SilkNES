@@ -54,7 +54,6 @@ impl Flags {
   }
 
   pub fn from_u8(byte: u8) -> Self {
-    println!("Settings flags from {:08b}", byte);
     Self {
       carry: (byte & (1 << 0)) != 0,
       zero: (byte & (1 << 1)) != 0,
@@ -107,9 +106,8 @@ impl NES6502 {
   pub fn step(&mut self) {
     self.total_cycles += 1;
     if self.cycles == 0 {
-      //println!("Total cycles: {}", self.total_cycles);
       let opcode = self.read(self.pc);
-      println!("PC: {:#04X}, opcode: {:02X}", self.pc, opcode);
+      //println!("PC: {:#04X}, opcode: {:02X}", self.pc, opcode);
       self.pc = self.pc.wrapping_add(1);
 
       match opcode {
@@ -494,8 +492,6 @@ impl NES6502 {
   fn and(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
     self.fetch(mode);
-
-    println!("Fetched data: {}", self.fetched_data);
 
     self.a &= self.fetched_data;
 
@@ -1224,15 +1220,16 @@ impl NES6502 {
 
   pub fn nmi(&mut self) {
     self.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
     self.write(0x0100 + self.sp as u16, (self.pc & 0x00FF) as u8);
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
 
     self.flags.break_command = false;
-    self.flags.interrupt_disable = true;
 
     self.write(0x0100 + self.sp as u16, self.flags.to_u8());
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
+
+    self.flags.interrupt_disable = true;
 
     self.current_address_abs = 0xFFFA;
     let low = self.read(self.current_address_abs) as u16;

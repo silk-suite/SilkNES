@@ -4,6 +4,7 @@ use nesilk_lib::cpu::Flags;
 use serde_json;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::path::Path;
 
 use nesilk_lib::bus::{BusLike, MockBus};
 use nesilk_lib::cpu::NES6502;
@@ -384,7 +385,7 @@ fn tya() {
 }
 
 fn run_opcode_tests(filename: &str) {
-  let file = std::fs::read(std::path::Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
+  let file = std::fs::read(Path::new(&format!("D:/ProcessorTests-main/nes6502/v1/{}.json", filename))).unwrap();
   let json: serde_json::Value = serde_json::from_slice(file.as_slice()).unwrap();
 
   // Create bus

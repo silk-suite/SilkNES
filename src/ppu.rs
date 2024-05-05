@@ -118,10 +118,10 @@ pub struct PPUInternal {
   /// or VRAM address before transferring it to v.
   pub t: Loopy,
   /// The fine-x position of the current scroll, used during rendering alongside v.
-  pub x: u8,
+  pub fine_x: u8,
   /// Toggles on each write to either PPUSCROLL or PPUADDR, indicating whether this is the first or second write.
   /// Clears on reads of PPUSTATUS.
-  pub w: bool,
+  pub write_latch: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -143,9 +143,9 @@ pub struct PPU {
   bus: Option<Rc<RefCell<Box<dyn BusLike>>>>,
   cartridge: Option<Rc<RefCell<Cartridge>>>,
   screen: [u8; 256 * 240],
-  nametables: [u8; 0x1000],
+  pub nametables: [[u8; 0x400]; 2],
   palette: [u8; 32],
-  pattern: [u8; 0x2000],
+  pattern: [[u8; 0x1000]; 2],
   cycle_count: u32,
   scanline_count: i16,
   frame_complete: bool,
@@ -168,11 +168,11 @@ impl PPU {
       bus: None,
       cartridge: None,
       screen: [0; 256 * 240],
-      nametables: [0; 0x1000],
+      nametables: [[0; 0x400]; 2],
       palette: [0; 32],
-      pattern: [0; 0x2000],
+      pattern: [[0; 0x1000]; 2],
       cycle_count: 0,
-      scanline_count: 0,
+      scanline_count: -1,
       frame_complete: false,
       registers: PPURegisters::default(),
       buffered_data: 0,
@@ -204,9 +204,9 @@ impl PPU {
       0x0002 => { // STATUS
         // Technically only the top bits of the status register will be used,
         // but we emulate the behavior of the bottom bits being old buffered data
-        let data = self.registers.status.to_u8() | (self.buffered_data & 0x1F);
+        let data = (self.registers.status.to_u8() & 0xE0) | (self.buffered_data & 0x1F);
         self.registers.status.vertical_blank = false;
-        self.registers.internal.w = false;
+        self.registers.internal.write_latch = false;
         data
       },
       0x0003 => 0, // OAMADDR (not readable)
@@ -223,7 +223,8 @@ impl PPU {
           data = self.buffered_data;
         }
 
-        self.registers.internal.v.address += if self.registers.ctrl.increment_mode { 32 } else { 1 };
+        let increment = if self.registers.ctrl.increment_mode { 32 } else { 1 };
+        self.registers.internal.v.address = self.registers.internal.v.address.wrapping_add(increment);
 
         data
       },
@@ -248,29 +249,30 @@ impl PPU {
       0x0003 => todo!(), // OAMADDR
       0x0004 => todo!(), // OAMDATA
       0x0005 => { // SCROLL
-        if !self.registers.internal.w {
-          self.registers.internal.x = value & 0x07;
+        if !self.registers.internal.write_latch {
+          self.registers.internal.fine_x = value & 0x07;
           self.registers.internal.t.coarse_x = value >> 3;
-          self.registers.internal.w = true;
+          self.registers.internal.write_latch = true;
         } else {
           self.registers.internal.t.fine_y = value & 0x07;
           self.registers.internal.t.coarse_y = value >> 3;
-          self.registers.internal.w = false;
+          self.registers.internal.write_latch = false;
         }
       },
       0x0006 => { // ADDR
-        if !self.registers.internal.w {
-          self.registers.internal.t.address = ((value as u16 & 0b0000_1111) << 8) | (self.registers.internal.t.address & 0x00FF);
-          self.registers.internal.w = true;
+        if !self.registers.internal.write_latch {
+          self.registers.internal.t.address = ((value as u16 & 0x3F) << 8) | (self.registers.internal.t.address & 0x00FF);
+          self.registers.internal.write_latch = true;
         } else {
           self.registers.internal.t.address = (self.registers.internal.t.address & 0xFF00) | value as u16;
           self.registers.internal.v.address = self.registers.internal.t.address;
-          self.registers.internal.w = false;
+          self.registers.internal.write_latch = false;
         }
       },
       0x0007 => { // DATA
         self.ppu_write(self.registers.internal.v.address, value);
-        self.registers.internal.v.address += if self.registers.ctrl.increment_mode { 32 } else { 1 };
+        let increment = if self.registers.ctrl.increment_mode { 32 } else { 1 };
+        self.registers.internal.v.address = self.registers.internal.v.address.wrapping_add(increment);
       },
       _ => panic!("Invalid address for PPU write: {:#04X}", address),
     }
@@ -292,19 +294,19 @@ impl PPU {
       match cartridge.get_nametable_layout() {
         MirroringMode::Vertical => {
           match masked {
-            0x0000..=0x03FF => self.nametables[(address & 0x03FF) as usize],
-            0x0400..=0x07FF => self.nametables[0x400 + (address & 0x03FF) as usize],
-            0x0800..=0x0BFF => self.nametables[(address & 0x03FF) as usize],
-            0x0C00..=0x0FFF => self.nametables[0x400 + (address & 0x03FF) as usize],
-            _ => panic!("Invalid address for PPU read: {:#04X}", address),
+            0x0000..=0x03FF => self.nametables[0][(masked & 0x03FF) as usize],
+            0x0400..=0x07FF => self.nametables[1][(masked & 0x03FF) as usize],
+            0x0800..=0x0BFF => self.nametables[0][(masked & 0x03FF) as usize],
+            0x0C00..=0x0FFF => self.nametables[1][(masked & 0x03FF) as usize],
+            _ => panic!("Invalid address for PPU read: {:#04X}", masked),
           }
         },
         MirroringMode::Horizontal => {
           match masked {
-            0x0000..=0x03FF => self.nametables[(address & 0x03FF) as usize],
-            0x0400..=0x07FF => self.nametables[(address & 0x03FF) as usize],
-            0x0800..=0x0BFF => self.nametables[0x400 + (address & 0x03FF) as usize],
-            0x0C00..=0x0FFF => self.nametables[0x400 + (address & 0x03FF) as usize],
+            0x0000..=0x03FF => self.nametables[0][(address & 0x03FF) as usize],
+            0x0400..=0x07FF => self.nametables[0][(address & 0x03FF) as usize],
+            0x0800..=0x0BFF => self.nametables[1][(address & 0x03FF) as usize],
+            0x0C00..=0x0FFF => self.nametables[1][(address & 0x03FF) as usize],
             _ => panic!("Invalid address for PPU read: {:#04X}", address),
           }
         },
@@ -333,26 +335,25 @@ impl PPU {
     };
 
     if masked <= 0x1FFF {
-      let index = (0x1000 * ((masked & 0x1000) >> 12)) + (masked & 0x0FFF);
-      self.pattern[index as usize] = value;
+      self.pattern[((masked & 0x1000) >> 12) as usize][(masked & 0x0FFF) as usize] = value;
     } else if masked >= 0x2000 && masked <= 0x3EFF {
       masked &= 0x0FFF;
       match cartridge.get_nametable_layout() {
         MirroringMode::Vertical => {
           match masked {
-            0x0000..=0x03FF => self.nametables[(masked & 0x03FF) as usize] = value,
-            0x0400..=0x07FF => self.nametables[0x03FF + (masked & 0x03FF) as usize] = value,
-            0x0800..=0x0BFF => self.nametables[(masked & 0x03FF) as usize] = value,
-            0x0C00..=0x0FFF => self.nametables[0x03FF + (masked & 0x03FF) as usize] = value,
+            0x0000..=0x03FF => self.nametables[0][(masked & 0x03FF) as usize] = value,
+            0x0400..=0x07FF => self.nametables[1][(masked & 0x03FF) as usize] = value,
+            0x0800..=0x0BFF => self.nametables[0][(masked & 0x03FF) as usize] = value,
+            0x0C00..=0x0FFF => self.nametables[1][(masked & 0x03FF) as usize] = value,
             _ => panic!("Invalid address for PPU write: {:#04X}", masked),
           }
         },
         MirroringMode::Horizontal => {
           match masked {
-            0x0000..=0x03FF => self.nametables[(masked & 0x03FF) as usize] = value,
-            0x0400..=0x07FF => self.nametables[(masked & 0x03FF) as usize] = value,
-            0x0800..=0x0BFF => self.nametables[0x400 + (masked & 0x03FF) as usize] = value,
-            0x0C00..=0x0FFF => self.nametables[0x400 + (masked & 0x03FF) as usize] = value,
+            0x0000..=0x03FF => self.nametables[0][(masked & 0x03FF) as usize] = value,
+            0x0400..=0x07FF => self.nametables[0][(masked & 0x03FF) as usize] = value,
+            0x0800..=0x0BFF => self.nametables[1][(masked & 0x03FF) as usize] = value,
+            0x0C00..=0x0FFF => self.nametables[1][(masked & 0x03FF) as usize] = value,
             _ => panic!("Invalid address for PPU write: {:#04X}", masked),
           }
         },
@@ -382,7 +383,7 @@ impl PPU {
         self.registers.status.vertical_blank = false;
       }
 
-      if self.cycle_count >= 2 && self.cycle_count < 258 || self.cycle_count >= 321 && self.cycle_count < 338 {
+      if (self.cycle_count >= 2 && self.cycle_count < 258) || (self.cycle_count >= 321 && self.cycle_count < 338) {
         // Update shifters
         if self.registers.mask.background_enable {
           self.bg_pattern_shift_low <<= 1;
@@ -419,12 +420,12 @@ impl PPU {
           },
           4 => {
             self.bg_next_tile_lsb = self.ppu_read(((self.registers.ctrl.background_tile_select as u16) << 12)
-              + (self.bg_next_tile_id << 4) as u16
+              + ((self.bg_next_tile_id as u16) << 4)
               + self.registers.internal.v.fine_y as u16);
           },
           6 => {
             self.bg_next_tile_msb = self.ppu_read(((self.registers.ctrl.background_tile_select as u16) << 12)
-              + (self.bg_next_tile_id << 4) as u16
+              + ((self.bg_next_tile_id as u16) << 4)
               + self.registers.internal.v.fine_y as u16 + 8);
           },
           7 => {
@@ -478,7 +479,7 @@ impl PPU {
       }
 
       if self.cycle_count == 338 || self.cycle_count == 340 {
-        self.bg_next_tile_id = self.ppu_read(0x2000 | self.registers.internal.v.address & 0x0FFF);
+        self.bg_next_tile_id = self.ppu_read(0x2000 | (self.registers.internal.v.address & 0x0FFF));
       }
 
       if self.scanline_count == -1 && self.cycle_count >= 280 && self.cycle_count < 305 {
@@ -507,28 +508,22 @@ impl PPU {
     let mut bg_pixel = 0;
     let mut bg_pal = 0;
     if self.registers.mask.background_enable {
-      let bit_mux = 0x8000 >> self.registers.internal.x;
+      let bit_mux = 0x8000 >> self.registers.internal.fine_x;
 
-      let p0_pixel = (self.bg_pattern_shift_low & bit_mux) > 0;
-      let p1_pixel = (self.bg_pattern_shift_high & bit_mux) > 0;
-      bg_pixel = ((p1_pixel as u8) << 1) | p0_pixel as u8;
+      let p0_pixel = ((self.bg_pattern_shift_low & bit_mux) > 0) as u8;
+      let p1_pixel = ((self.bg_pattern_shift_high & bit_mux) > 0) as u8;
+      bg_pixel = (p1_pixel << 1) | p0_pixel;
 
-      let bg_pal0 = (self.bg_attrib_shift_low & bit_mux) > 0;
-      let bg_pal1 = (self.bg_attrib_shift_high & bit_mux) > 0;
-      bg_pal = ((bg_pal1 as u8) << 1) | bg_pal0 as u8;
+      let bg_pal0 = ((self.bg_attrib_shift_low & bit_mux) > 0) as u8;
+      let bg_pal1 = ((self.bg_attrib_shift_high & bit_mux) > 0) as u8;
+      bg_pal = (bg_pal1 << 1) | bg_pal0;
 
     }
 
     if self.scanline_count < 240 && self.cycle_count < 256 {
       let index = self.scanline_count as usize * 256 + (self.cycle_count as usize - 1);
-      if self.scanline_count >= 0 && self.scanline_count < 240 && self.cycle_count >= 1 && self.cycle_count < 256 {
+      if index < self.screen.len() {
         self.screen[index] = bg_pixel;
-        if self.scanline_count == 239 && self.cycle_count == 255 {
-          self.screen[index] = 1;
-          // println!("VRAM ADDRESS: {:04X}", self.registers.internal.v.address);
-          // println!("DUMPING NONZERO NAMETABLE VALUES");
-          // println!("{:02X?}", self.nametables.iter().filter(|x| **x != 0).collect::<Vec<&u8>>());
-        }
       }
     }
 
