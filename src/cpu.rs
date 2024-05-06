@@ -345,7 +345,7 @@ impl NES6502 {
     }
   }
 
-  fn fetch(&mut self, mode: AddressingMode) {
+  fn fetch(&mut self, mode: AddressingMode, requires_data: bool) {
     match mode {
       // Data has an implicit source, potentially the accumulator
       AddressingMode::Implied => {
@@ -467,7 +467,7 @@ impl NES6502 {
       },
     }
 
-    if mode != AddressingMode::Implied {
+    if mode != AddressingMode::Implied && requires_data {
       self.fetched_data = self.read(self.current_address_abs);
     }
   }
@@ -477,7 +477,7 @@ impl NES6502 {
   /// Add with carry
   fn adc(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let temp = self.a as u16 + self.fetched_data as u16 + self.flags.carry as u16;
     self.flags.carry = temp > 255;
@@ -491,7 +491,7 @@ impl NES6502 {
   /// Logical AND accumulator with given data
   fn and(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     self.a &= self.fetched_data;
 
@@ -502,7 +502,7 @@ impl NES6502 {
   /// Arithmetic shift left
   fn asl(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let value = (self.fetched_data as u16) << 1;
 
@@ -520,7 +520,7 @@ impl NES6502 {
   /// Branch if carry flag is clear
   fn bcc(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     if !self.flags.carry {
       self.cycles += 1;
@@ -538,7 +538,7 @@ impl NES6502 {
   /// Branch if carry flag is set
   fn bcs(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     if self.flags.carry {
       self.cycles += 1;
@@ -556,7 +556,7 @@ impl NES6502 {
   /// Branch if zero flag is set
   fn beq(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     if self.flags.zero {
       self.cycles += 1;
@@ -574,7 +574,7 @@ impl NES6502 {
   /// AND the contents of A with the value in memory and check if bits are set
   fn bit(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let temp = self.a & self.fetched_data;
 
@@ -586,7 +586,7 @@ impl NES6502 {
   /// Branch if negative flag is set
   fn bmi(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     if self.flags.negative {
       self.cycles += 1;
@@ -604,7 +604,7 @@ impl NES6502 {
   /// Branch if zero flag is clear
   fn bne(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     if !self.flags.zero {
       self.cycles += 1;
@@ -622,7 +622,7 @@ impl NES6502 {
   /// Branch if negative flag is clear
   fn bpl(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     if !self.flags.negative {
       self.cycles += 1;
@@ -640,7 +640,7 @@ impl NES6502 {
   /// Forces the generation of an interrupt request
   fn brk(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.pc += 1;
 
@@ -664,7 +664,7 @@ impl NES6502 {
   /// Branch if overflow flag is clear
   fn bvc(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     if !self.flags.overflow {
       self.cycles += 1;
@@ -682,7 +682,7 @@ impl NES6502 {
   /// Branch if overflow flag is set
   fn bvs(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     if self.flags.overflow {
       self.cycles += 1;
@@ -700,7 +700,7 @@ impl NES6502 {
   /// Clear carry flag
   fn clc(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.flags.carry = false;
   }
@@ -708,7 +708,7 @@ impl NES6502 {
   /// Clear decimal mode
   fn cld(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.flags.decimal_mode = false;
   }
@@ -716,7 +716,7 @@ impl NES6502 {
   /// Clear interrupt disable flag
   fn cli(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.flags.interrupt_disable = false;
   }
@@ -724,7 +724,7 @@ impl NES6502 {
   /// Clear overflow flag
   fn clv(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.flags.overflow = false;
   }
@@ -732,7 +732,7 @@ impl NES6502 {
   /// Compare the contents of the accumulator with another value in memory
   fn cmp(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let temp = self.a.wrapping_sub(self.fetched_data);
 
@@ -744,7 +744,7 @@ impl NES6502 {
   /// Compare the contents of the X register with another value in memory
   fn cpx(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let temp = self.x.wrapping_sub(self.fetched_data);
 
@@ -756,7 +756,7 @@ impl NES6502 {
   /// Compare the contents of the Y register with another value in memory
   fn cpy(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let temp = self.y.wrapping_sub(self.fetched_data);
 
@@ -768,7 +768,7 @@ impl NES6502 {
   /// Decrement value stored at memory address by 1
   fn dec(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     // Make this better later
     let mut value = self.read(self.current_address_abs);
@@ -782,7 +782,7 @@ impl NES6502 {
   /// Decrement X register by 1
   fn dex(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.x = self.x.wrapping_sub(1);
 
@@ -793,7 +793,7 @@ impl NES6502 {
   /// Decrement Y register by 1
   fn dey(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.y = self.y.wrapping_sub(1);
 
@@ -804,7 +804,7 @@ impl NES6502 {
   /// Logical XOR accummulator with given value
   fn eor(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     self.a ^= self.fetched_data;
 
@@ -815,7 +815,7 @@ impl NES6502 {
   /// Increment value stored at memory address by 1
   fn inc(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     // Make this better later
     let mut value = self.read(self.current_address_abs);
@@ -829,7 +829,7 @@ impl NES6502 {
   /// Increment X register by 1
   fn inx(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.x = self.x.wrapping_add(1);
 
@@ -840,7 +840,7 @@ impl NES6502 {
   /// Increment Y register by 1
   fn iny(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.y = self.y.wrapping_add(1);
 
@@ -851,7 +851,7 @@ impl NES6502 {
   /// Set the program counter to the given address
   fn jmp(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.pc = self.current_address_abs;
   }
@@ -859,7 +859,7 @@ impl NES6502 {
   // Push the current program counter to the stack, then jump to the given address
   fn jsr(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.pc = self.pc.wrapping_sub(1);
 
@@ -874,7 +874,7 @@ impl NES6502 {
   /// Load a byte of memory into the accumulator
   fn lda(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     self.a = self.fetched_data;
 
@@ -885,7 +885,7 @@ impl NES6502 {
   /// Load a byte of memory into the X register
   fn ldx(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     self.x = self.fetched_data;
 
@@ -896,7 +896,7 @@ impl NES6502 {
   /// Load a byte of memory into the Y register
   fn ldy(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     self.y = self.fetched_data;
 
@@ -907,7 +907,7 @@ impl NES6502 {
   /// Logical shift right
   fn lsr(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let original_value = self.fetched_data as u16;
     let value = (original_value >> 1) as u8;
@@ -926,13 +926,13 @@ impl NES6502 {
   /// No op
   fn nop(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
   }
 
   /// Logical OR the accumulator with a byte of memory
   fn ora(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     self.a |= self.fetched_data;
 
@@ -943,7 +943,7 @@ impl NES6502 {
   /// Pushes a copy of the accumulator on to the stack.
   fn pha(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.write(0x0100 + self.sp as u16, self.a);
     self.sp = self.sp.wrapping_sub(1);
@@ -952,7 +952,7 @@ impl NES6502 {
   /// Pushes a copy of the status flags on to the stack.
   fn php(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.flags.break_command = true;
     self.write(0x0100 + self.sp as u16, self.flags.to_u8());
@@ -963,7 +963,7 @@ impl NES6502 {
   /// Pulls an 8 bit value from the stack and into the accumulator.
   fn pla(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.sp = self.sp.wrapping_add(1);
     self.a = self.read(0x0100 + self.sp as u16);
@@ -975,7 +975,7 @@ impl NES6502 {
   /// Pulls an 8 bit value from the stack and into the processor flags.
   fn plp(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.sp = self.sp.wrapping_add(1);
     self.flags = Flags::from_u8(self.read(0x0100 + self.sp as u16));
@@ -985,7 +985,7 @@ impl NES6502 {
   /// Move each of the bits in either A or M one place to the left.
   fn rol(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let value = (((self.fetched_data as u16) << 1) | self.flags.carry as u16) as u16;
 
@@ -1003,7 +1003,7 @@ impl NES6502 {
   /// Move each of the bits in either A or M one place to the right.
   fn ror(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let value = ((self.flags.carry as u16) << 7) as u16 | (self.fetched_data >> 1) as u16;
 
@@ -1021,7 +1021,7 @@ impl NES6502 {
   /// Return from interrupt
   fn rti(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     // Pull status flags
     self.sp = self.sp.wrapping_add(1);
@@ -1039,7 +1039,7 @@ impl NES6502 {
   /// Pull the program counter from the stack (minus one) and jump to it
   fn rts(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.sp = self.sp.wrapping_add(1);
     self.pc = self.read(0x0100 + self.sp as u16) as u16;
@@ -1052,7 +1052,7 @@ impl NES6502 {
   /// Subtraction with carry
   fn sbc(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, true);
 
     let value = self.fetched_data as u16 ^ 0x00FF;
     let temp = self.a as u16 + value + self.flags.carry as u16;
@@ -1067,7 +1067,7 @@ impl NES6502 {
   /// Set carry
   fn sec(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.flags.carry = true;
   }
@@ -1075,7 +1075,7 @@ impl NES6502 {
   /// Set decimal mode
   fn sed(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.flags.decimal_mode = true;
   }
@@ -1083,7 +1083,7 @@ impl NES6502 {
   /// Set the interrupt disable flag
   fn sei(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.flags.interrupt_disable = true;
   }
@@ -1091,7 +1091,7 @@ impl NES6502 {
   /// Store the contents of A in memory
   fn sta(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.write(self.current_address_abs, self.a);
   }
@@ -1099,7 +1099,7 @@ impl NES6502 {
   /// Store the contents of register X in memory
   fn stx(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.write(self.current_address_abs, self.x);
   }
@@ -1107,7 +1107,7 @@ impl NES6502 {
   /// Store the contents of register Y in memory
   fn sty(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.write(self.current_address_abs, self.y);
   }
@@ -1115,7 +1115,7 @@ impl NES6502 {
   /// Transfer the contents of A to register X
   fn tax(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.x = self.a;
 
@@ -1126,7 +1126,7 @@ impl NES6502 {
   /// Transfer the contents of A to register Y
   fn tay(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.y = self.a;
 
@@ -1137,7 +1137,7 @@ impl NES6502 {
   /// Transfer the contents of the stack register to register X
   fn tsx(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.x = self.sp;
 
@@ -1148,7 +1148,7 @@ impl NES6502 {
   /// Transfer the contents of register X to A
   fn txa(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.a = self.x;
 
@@ -1159,7 +1159,7 @@ impl NES6502 {
   /// Transfer the contents of register X to the stack register
   fn txs(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.sp = self.x;
   }
@@ -1167,7 +1167,7 @@ impl NES6502 {
   /// Transfer the contents of register Y to A
   fn tya(&mut self, mode: AddressingMode, initial_cycle_count: usize) {
     self.cycles += initial_cycle_count;
-    self.fetch(mode);
+    self.fetch(mode, false);
 
     self.a = self.y;
 
