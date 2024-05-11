@@ -116,19 +116,19 @@ impl Loopy {
   }
   pub fn set_coarse_y(&mut self, value: u8) {
     self.coarse_y = value;
-    self.address = (self.address & 0b0111_1100_0001_1111) | (value << 5) as u16;
+    self.address = (self.address & 0b0111_1100_0001_1111) | ((value as u16) << 5);
   }
   pub fn set_nametable_x(&mut self, value: bool) {
     self.nametable_x = value;
-    self.address = (self.address & 0b0111_1011_1111_1111) | ((value as u16) << 10) as u16;
+    self.address = (self.address & 0b0111_1011_1111_1111) | ((value as u16) << 10);
   }
   pub fn set_nametable_y(&mut self, value: bool) {
     self.nametable_y = value;
-    self.address = (self.address & 0b0111_0111_1111_1111) | ((value as u16) << 11) as u16;
+    self.address = (self.address & 0b0111_0111_1111_1111) | ((value as u16) << 11);
   }
   pub fn set_fine_y(&mut self, value: u8) {
     self.fine_y = value;
-    self.address = (self.address & 0b0000_1111_1111_1111) | ((value as u16) << 12) as u16;
+    self.address = (self.address & 0b0000_1111_1111_1111) | ((value as u16) << 12);
   }
   pub fn set_address(&mut self, value: u16) {
     self.address = value;
