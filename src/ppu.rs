@@ -109,6 +109,37 @@ pub struct Loopy {
   pub address: u16,
 }
 
+impl Loopy {
+  pub fn set_coarse_x(&mut self, value: u8) {
+    self.coarse_x = value;
+    self.address = (self.address & 0b0111_1111_1110_0000) | value as u16;
+  }
+  pub fn set_coarse_y(&mut self, value: u8) {
+    self.coarse_y = value;
+    self.address = (self.address & 0b0111_1100_0001_1111) | (value << 5) as u16;
+  }
+  pub fn set_nametable_x(&mut self, value: bool) {
+    self.nametable_x = value;
+    self.address = (self.address & 0b0111_1011_1111_1111) | ((value as u16) << 10) as u16;
+  }
+  pub fn set_nametable_y(&mut self, value: bool) {
+    self.nametable_y = value;
+    self.address = (self.address & 0b0111_0111_1111_1111) | ((value as u16) << 11) as u16;
+  }
+  pub fn set_fine_y(&mut self, value: u8) {
+    self.fine_y = value;
+    self.address = (self.address & 0b0000_1111_1111_1111) | ((value as u16) << 12) as u16;
+  }
+  pub fn set_address(&mut self, value: u16) {
+    self.address = value;
+    self.coarse_x = (value & 0b0000_0000_0001_1111) as u8;
+    self.coarse_y = ((value & 0b0000_0011_1110_0000) >> 5) as u8;
+    self.nametable_x = (value & 0b0000_0100_0000_0000) >> 10 != 0;
+    self.nametable_y = (value & 0b0000_1000_0000_0000) >> 11 != 0;
+    self.fine_y = ((value & 0b0111_0000_0000_0000) >> 12) as u8;
+  }
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PPUInternal {
   /// During rendering, used for the scroll position. Outside of rendering, used as the current VRAM address.
@@ -147,7 +178,7 @@ pub struct PPU {
   palette: [u8; 32],
   pattern: [[u8; 0x1000]; 2],
   cycle_count: u32,
-  scanline_count: i16,
+  scanline_count: i32,
   frame_complete: bool,
   registers: PPURegisters,
   buffered_data: u8,
@@ -219,7 +250,6 @@ impl PPU {
       0x0007 => { // DATA
         let mut data = self.buffered_data;
         self.buffered_data = self.ppu_read(self.registers.internal.v.address);
-        //println!("Reading value {:04X} from address {:04X}", self.buffered_data, self.registers.internal.v.address);
 
         // Reads from palette memory are not buffered
         if self.registers.internal.v.address >= 0x3F00 {
@@ -227,7 +257,7 @@ impl PPU {
         }
 
         let increment = if self.registers.ctrl.increment_mode { 32 } else { 1 };
-        self.registers.internal.v.address = self.registers.internal.v.address.wrapping_add(increment);
+        self.registers.internal.v.set_address(self.registers.internal.v.address.wrapping_add(increment));
 
         data
       },
@@ -240,8 +270,8 @@ impl PPU {
     match address {
       0x0000 => {
         self.registers.ctrl.set_from_u8(value);
-        self.registers.internal.t.nametable_x = self.registers.ctrl.nametable_x;
-        self.registers.internal.t.nametable_y = self.registers.ctrl.nametable_y;
+        self.registers.internal.t.set_nametable_x(self.registers.ctrl.nametable_x);
+        self.registers.internal.t.set_nametable_y(self.registers.ctrl.nametable_y);
       },
       0x0001 => {
         self.registers.mask.set_from_u8(value);
@@ -258,32 +288,28 @@ impl PPU {
       0x0005 => { // SCROLL
         if !self.registers.internal.write_latch {
           self.registers.internal.fine_x = value & 0x07;
-          self.registers.internal.t.coarse_x = value >> 3;
+          self.registers.internal.t.set_coarse_x(value >> 3);
           self.registers.internal.write_latch = true;
         } else {
-          self.registers.internal.t.fine_y = value & 0x07;
-          self.registers.internal.t.coarse_y = value >> 3;
+          self.registers.internal.t.set_fine_y(value & 0x07);
+          self.registers.internal.t.set_coarse_y(value >> 3);
           self.registers.internal.write_latch = false;
         }
       },
       0x0006 => { // ADDR
         if !self.registers.internal.write_latch {
-          self.registers.internal.t.address = ((value as u16 & 0x3F) << 8) | (self.registers.internal.t.address & 0x00FF);
+          self.registers.internal.t.set_address(((value as u16 & 0x3F) << 8) | (self.registers.internal.t.address & 0x00FF));
           self.registers.internal.write_latch = true;
         } else {
-          self.registers.internal.t.address = (self.registers.internal.t.address & 0xFF00) | value as u16;
-          self.registers.internal.v.address = self.registers.internal.t.address;
+          self.registers.internal.t.set_address((self.registers.internal.t.address & 0xFF00) | value as u16);
+          self.registers.internal.v.set_address(self.registers.internal.t.address);
           self.registers.internal.write_latch = false;
         }
       },
       0x0007 => { // DATA
-        // if (self.registers.internal.v.address >= 0x2000) && (self.registers.internal.v.address <= 0x3EFF) && value != 0 {
-        //   println!("Writing value {:02X} to address {:04X}", value, self.registers.internal.v.address);
-        //   println!("{}", self.registers.ctrl.increment_mode);
-        // }
         self.ppu_write(self.registers.internal.v.address, value);
         let increment = if self.registers.ctrl.increment_mode { 32 } else { 1 };
-        self.registers.internal.v.address = self.registers.internal.v.address.wrapping_add(increment);
+        self.registers.internal.v.set_address(self.registers.internal.v.address.wrapping_add(increment));
       },
       _ => panic!("Invalid address for PPU write: {:#04X}", address),
     }
@@ -300,6 +326,7 @@ impl PPU {
     if masked <= 0x1FFF {
       cartridge.ppu_read(address)
     } else if masked >= 0x2000 && masked <= 0x3EFF {
+      //println!("PPU READ from address {:#04X} at scanline {} cycle {}", masked, self.scanline_count, self.cycle_count);
       // Nametables
       masked = address & 0x0FFF;
       match cartridge.get_nametable_layout() {
@@ -313,6 +340,7 @@ impl PPU {
           }
         },
         MirroringMode::Horizontal => {
+          //println!("Nametable index: {}", ((address & 0x03FF) as usize));
           match masked {
             0x0000..=0x03FF => self.nametables[0][(address & 0x03FF) as usize],
             0x0400..=0x07FF => self.nametables[0][(address & 0x03FF) as usize],
@@ -417,8 +445,8 @@ impl PPU {
           2 => {
             self.bg_next_tile_attrib = self.ppu_read(0x23C0 | ((self.registers.internal.v.nametable_y as u16) << 11)
               | ((self.registers.internal.v.nametable_x as u16) << 10)
-              | ((self.registers.internal.v.coarse_y >> 2) << 3) as u16
-              | (self.registers.internal.v.coarse_x >> 2) as u16);
+              | ((self.registers.internal.v.coarse_y as u16 >> 2) << 3)
+              | (self.registers.internal.v.coarse_x as u16 >> 2));
 
             if (self.registers.internal.v.coarse_y & 0x02) != 0 {
               self.bg_next_tile_attrib >>= 4;
@@ -443,10 +471,10 @@ impl PPU {
             // Increment scroll X
             if self.registers.mask.background_enable || self.registers.mask.sprite_enable {
               if self.registers.internal.v.coarse_x == 31 {
-                self.registers.internal.v.coarse_x = 0;
-                self.registers.internal.v.nametable_x = !self.registers.internal.v.nametable_x;
+                self.registers.internal.v.set_coarse_x(0);
+                self.registers.internal.v.set_nametable_x(!self.registers.internal.v.nametable_x);
               } else {
-                self.registers.internal.v.coarse_x += 1;
+                self.registers.internal.v.set_coarse_x(self.registers.internal.v.coarse_x.wrapping_add(1));
               }
             }
           },
@@ -458,17 +486,17 @@ impl PPU {
         // Increment scroll Y
         if self.registers.mask.background_enable || self.registers.mask.sprite_enable {
           if self.registers.internal.v.fine_y < 7 {
-            self.registers.internal.v.fine_y += 1;
+            self.registers.internal.v.set_fine_y(self.registers.internal.v.fine_y.wrapping_add(1));
           } else {
-            self.registers.internal.v.fine_y = 0;
+            self.registers.internal.v.set_fine_y(0);
 
             if self.registers.internal.v.coarse_y == 29 {
-              self.registers.internal.v.coarse_y = 0;
-              self.registers.internal.v.nametable_y = !self.registers.internal.v.nametable_y;
+              self.registers.internal.v.set_coarse_y(0);
+              self.registers.internal.v.set_nametable_y(!self.registers.internal.v.nametable_y);
             } else if self.registers.internal.v.coarse_y == 31 {
-              self.registers.internal.v.coarse_y = 0;
+              self.registers.internal.v.set_coarse_y(0);
             } else {
-              self.registers.internal.v.coarse_y += 1;
+              self.registers.internal.v.set_coarse_y(self.registers.internal.v.coarse_y.wrapping_add(1));
             }
           }
         }
@@ -484,8 +512,8 @@ impl PPU {
 
         // Transfer address X
         if self.registers.mask.background_enable || self.registers.mask.sprite_enable {
-          self.registers.internal.v.nametable_x = self.registers.internal.t.nametable_x;
-          self.registers.internal.v.coarse_x = self.registers.internal.t.coarse_x;
+          self.registers.internal.v.set_nametable_x(self.registers.internal.t.nametable_x);
+          self.registers.internal.v.set_coarse_x(self.registers.internal.t.coarse_x);
         }
       }
 
@@ -496,9 +524,9 @@ impl PPU {
       if self.scanline_count == -1 && self.cycle_count >= 280 && self.cycle_count < 305 {
         // Transfer address Y
         if self.registers.mask.background_enable || self.registers.mask.sprite_enable {
-          self.registers.internal.v.nametable_y = self.registers.internal.t.nametable_y;
-          self.registers.internal.v.coarse_y = self.registers.internal.t.coarse_y;
-          self.registers.internal.v.fine_y = self.registers.internal.t.fine_y;
+          self.registers.internal.v.set_nametable_y(self.registers.internal.t.nametable_y);
+          self.registers.internal.v.set_coarse_y(self.registers.internal.t.coarse_y);
+          self.registers.internal.v.set_fine_y(self.registers.internal.t.fine_y);
         }
       }
     }
