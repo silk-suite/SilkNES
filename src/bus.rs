@@ -16,6 +16,7 @@ pub trait BusLike {
   fn dump_ram(&self) -> Vec<u8>;
   fn get_global_cycles(&self) -> u32;
   fn set_global_cycles(&mut self, cycles: u32);
+  fn update_controller(&mut self, controller_index: usize, value: u8);
 }
 
 pub struct Bus {
@@ -23,6 +24,8 @@ pub struct Bus {
   cpu_ram: Vec<u8>,
   ppu: Option<Rc<RefCell<PPU>>>,
   cartridge: Option<Rc<RefCell<Cartridge>>>,
+  pub controllers: [u8; 2],
+  controllers_state: Rc<RefCell<[u8; 2]>>,
   pub global_cycles: u32,
 }
 
@@ -33,6 +36,8 @@ impl Bus {
       cpu_ram: vec![0; 2048],
       ppu: None,
       cartridge: None,
+      controllers: [0, 0],
+      controllers_state: Rc::new(RefCell::new([0, 0])),
       global_cycles: 0,
     }
   }
@@ -55,32 +60,49 @@ impl BusLike for Bus {
   }
 
   fn cpu_read(&self, address: u16) -> u8 {
-    let mut data = 0_u8;
-
-    if address <= 0x1FFF {
-      data = self.cpu_ram[(address & 0x07FF) as usize];
-    } else if address >= 0x2000 && address <= 0x3FFF {
-      if let Some(ppu) = &self.ppu {
-        data = ppu.as_ref().borrow_mut().cpu_read(address & 0x0007);
-      }
-    } else if address >= 0x8000 {
-      if let Some(cartridge) = &self.cartridge {
-        data = cartridge.as_ref().borrow().cpu_read(address);
-      }
-    } else {
-      data = 0;
+    match address {
+      0x0000..=0x1FFF => {
+        self.cpu_ram[(address & 0x07FF) as usize]
+      },
+      0x2000..=0x3FFF => {
+        if let Some(ppu) = &self.ppu {
+          ppu.as_ref().borrow_mut().cpu_read(address & 0x0007)
+        } else {
+          panic!("PPU is not connected!");
+        }
+      },
+      0x4016 | 0x4017 => {
+        let index = (address & 0x1) as usize;
+        let value = (self.controllers_state.as_ref().borrow()[index] & 0x80) > 0;
+        self.controllers_state.borrow_mut()[index] <<= 1;
+        value as u8
+      },
+      0x8000..=0xFFFF => {
+        if let Some(cartridge) = &self.cartridge {
+          cartridge.as_ref().borrow().cpu_read(address)
+        } else {
+          panic!("Cartridge is not connected!");
+        }
+      },
+      _ => 0
     }
-
-    data
   }
 
   fn cpu_write(&mut self, address: u16, value: u8) {
-    if address <= 0x1FFF {
-      self.cpu_ram[(address & 0x07FF) as usize] = value;
-    } else if address >= 0x2000 && address <= 0x3FFF {
-      if let Some(ppu) = &self.ppu {
-        ppu.as_ref().borrow_mut().cpu_write(address & 0x0007, value);
-      }
+    match address {
+      0x0000..=0x1FFF => {
+        self.cpu_ram[(address & 0x07FF) as usize] = value;
+      },
+      0x2000..=0x3FFF => {
+        if let Some(ppu) = &self.ppu {
+          ppu.as_ref().borrow_mut().cpu_write(address & 0x0007, value);
+        }
+      },
+      0x4016 | 0x4017 => {
+        let index = (address & 0x1) as usize;
+        self.controllers_state.borrow_mut()[index] = self.controllers[index];
+      },
+      _ => {}
     }
   }
 
@@ -101,6 +123,10 @@ impl BusLike for Bus {
 
   fn set_global_cycles(&mut self, cycles: u32) {
     self.global_cycles = cycles;
+  }
+
+  fn update_controller(&mut self, controller_index: usize, value: u8) {
+    self.controllers[controller_index] = value;
   }
 }
 
@@ -146,4 +172,6 @@ impl BusLike for MockBus {
   }
 
   fn set_global_cycles(&mut self, cycles: u32) {}
+
+  fn update_controller(&mut self, controller_index: usize, value: u8) {}
 }

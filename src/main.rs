@@ -85,8 +85,6 @@ fn main() {
     }
 
     cpu.borrow_mut().reset();
-    // Skip to $C000 since no graphics yet
-    //cpu.borrow_mut().pc = 0xC000;
 
     event_loop.set_control_flow(ControlFlow::Poll);
     
@@ -119,7 +117,6 @@ fn main() {
 
                 // Draw to screen
                 let display = ppu.borrow().get_screen();
-                let pattern_table = ppu.borrow().get_pattern_table(0);
                 let frame = pixels.frame_mut();
 
                 for (pixel, &value) in frame.chunks_mut(4).zip(display.iter()) {
@@ -139,6 +136,25 @@ fn main() {
             if input.key_pressed(KeyCode::Escape) || input.close_requested() {
                 elwt.exit();
             }
+
+            let mut controller_state = 0x00;
+
+            for (key, value) in [
+                (KeyCode::ArrowRight, 0x01), // D-Pad Right
+                (KeyCode::ArrowLeft, 0x02), // D-Pad Left
+                (KeyCode::ArrowDown, 0x04), // D-Pad Down
+                (KeyCode::ArrowUp, 0x08), // D-Pad Up
+                (KeyCode::Enter, 0x10), // Start
+                (KeyCode::Space, 0x20), // Select
+                (KeyCode::KeyZ, 0x40), // B
+                (KeyCode::KeyX, 0x80), // A
+            ] {
+                if input.key_held(key) {
+                    controller_state |= value;
+                }
+            }
+
+            bus.borrow_mut().update_controller(0, controller_state);
         }
     });
 }
