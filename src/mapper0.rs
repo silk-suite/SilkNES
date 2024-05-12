@@ -28,8 +28,7 @@ impl Mapper for Mapper0 {
     if address <= 0x1FFF {
       address
     } else {
-      //panic!("Tried to get mapped address for: {:04X}", address);
-      0
+      panic!("Tried to get mapped address for: {:04X}", address);
     }
   }
 }

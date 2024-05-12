@@ -123,27 +123,12 @@ fn main() {
                 let frame = pixels.frame_mut();
 
                 for (pixel, &value) in frame.chunks_mut(4).zip(display.iter()) {
-                    let color = match value {
-                        0 => [0, 0, 0, 255],
-                        1 => [255, 255, 255, 255],
-                        2 => [255, 0, 0, 255],
-                        3 => [0, 255, 0, 255],
-                        _ => [127, 127, 127, 255],
-                    };
-
-                    pixel.copy_from_slice(&color);
+                    pixel.copy_from_slice(&value);
                 }
 
                 if let Err(err) = pixels.render() {
                     println!("pixels.render() failed: {}", err);
                     elwt.exit();
-                }
-
-                if bus.borrow().get_global_cycles() == (341*262) * 100 {
-                    // let nt = ppu.borrow().nametables[0];
-                    // println!("{:02X?}", nt);
-                    //println!("{:?}", bus.borrow().dump_ram());
-                    //elwt.exit();
                 }
             },
             _ => ()

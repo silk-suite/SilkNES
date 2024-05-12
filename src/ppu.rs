@@ -170,10 +170,17 @@ pub struct PPURegisters {
 
 // endregion: PPU Registers
 
+pub const COLORS: [[u8; 4]; 0x40] = [
+  [98, 98, 98, 255], [0, 31, 178, 255], [36, 4, 200, 255], [82, 0, 178, 255], [115, 0, 118, 255], [128, 0, 36, 255], [115, 11, 0, 255], [82, 40, 0, 255], [36, 68, 0, 255], [0, 87, 0, 255], [0, 92, 0, 255], [0, 83, 36, 255], [0, 60, 118, 255], [0, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255],
+  [171, 171, 171, 255], [13, 87, 255, 255], [75, 48, 255, 255], [138, 19, 255, 255], [188, 8, 214, 255], [210, 18, 105, 255], [199, 46, 0, 255], [157, 84, 0, 255], [96, 123, 0, 255], [32, 152, 0, 255], [0, 163, 0, 255], [0, 153, 66, 255], [0, 125, 180, 255], [0, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255],
+  [255, 255, 255, 255], [83, 174, 255, 255], [144, 133, 255, 255], [211, 101, 255, 255], [255, 87, 255, 255], [255, 93, 207, 255], [255, 119, 87, 255], [255, 158, 0, 255], [189, 199, 0, 255], [122, 231, 0, 255], [67, 246, 17, 255], [38, 239, 126, 255], [44, 213, 246, 255], [78, 78, 78, 255], [0, 0, 0, 255], [0, 0, 0, 255],
+  [255, 255, 255, 255], [182, 225, 255, 255], [206, 209, 255, 255], [233, 195, 255, 255], [255, 188, 255, 255], [255, 189, 244, 255], [255, 198, 195, 255], [255, 213, 154, 255], [233, 230, 129, 255], [206, 244, 129, 255], [182, 251, 154, 255], [169, 250, 195, 255], [169, 240, 244, 255], [184, 184, 184, 255], [0, 0, 0, 255], [0, 0, 0, 255],
+];
+
 pub struct PPU {
   bus: Option<Rc<RefCell<Box<dyn BusLike>>>>,
   cartridge: Option<Rc<RefCell<Cartridge>>>,
-  screen: [u8; 256 * 240],
+  screen: [[u8; 4]; 256 * 240],
   pub nametables: [[u8; 0x400]; 2],
   palette: [u8; 32],
   pattern: [[u8; 0x1000]; 2],
@@ -198,7 +205,7 @@ impl PPU {
     Self {
       bus: None,
       cartridge: None,
-      screen: [0; 256 * 240],
+      screen: [[0, 0, 0, 255]; 256 * 240],
       nametables: [[0; 0x400]; 2],
       palette: [0; 32],
       pattern: [[0; 0x1000]; 2],
@@ -358,7 +365,7 @@ impl PPU {
         0x001C => self.palette[0x000C as usize],
         _ => (address & 0x001F) as u8,
       };
-      pallete_address & if self.registers.mask.greyscale { 0x30 } else { 0x3F }
+      self.palette[pallete_address as usize] & if self.registers.mask.greyscale { 0x30 } else { 0x3F }
     } else {
       panic!("Invalid address for PPU read: {:#04X}", address);
     }
@@ -562,7 +569,7 @@ impl PPU {
     if self.scanline_count < 240 && self.cycle_count < 256 {
       let index = self.scanline_count as usize * 256 + (self.cycle_count as usize - 1);
       if index < self.screen.len() {
-        self.screen[index] = bg_pixel;
+        self.screen[index] = self.get_color_from_palette(bg_pal.into(), bg_pixel.into());
       }
     }
 
@@ -609,11 +616,12 @@ impl PPU {
     Vec::from(self.palette)
   }
 
-  pub fn get_color_from_palette(&self, palette: u8, pixel: u8) -> u8 {
-    self.ppu_read(0x3F00 + (palette << 2) as u16 + pixel as u16)
+  pub fn get_color_from_palette(&self, palette: u16, pixel: u16) -> [u8; 4] {
+    let index = (self.ppu_read(0x3F00 + (palette << 2) + pixel) & 0x3F) as usize;
+    COLORS[index]
   }
 
-  pub fn get_screen(&self) -> Vec<u8> {
+  pub fn get_screen(&self) -> Vec<[u8; 4]> {
     Vec::from(self.screen)
   }
 }

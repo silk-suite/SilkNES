@@ -75,8 +75,7 @@ impl Cartridge {
     if (mapped_address as usize) < self.chr_rom.len() {
       self.chr_rom[mapped_address as usize]
     } else {
-      panic!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-      //0
+      0
     }
   }
 
