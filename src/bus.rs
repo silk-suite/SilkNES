@@ -149,9 +149,9 @@ impl BusLike for MockBus {
     self.cpu = Some(cpu);
   }
 
-  fn connect_ppu(&mut self, ppu: Rc<RefCell<PPU>>) {}
+  fn connect_ppu(&mut self, _ppu: Rc<RefCell<PPU>>) {}
 
-  fn insert_cartridge(&mut self, cartridge: Rc<RefCell<Cartridge>>) {}
+  fn insert_cartridge(&mut self, _cartridge: Rc<RefCell<Cartridge>>) {}
 
   fn cpu_read(&self, address: u16) -> u8 {
     self.cpu_ram[address as usize]
@@ -171,7 +171,7 @@ impl BusLike for MockBus {
     0
   }
 
-  fn set_global_cycles(&mut self, cycles: u32) {}
+  fn set_global_cycles(&mut self, _cycles: u32) {}
 
-  fn update_controller(&mut self, controller_index: usize, value: u8) {}
+  fn update_controller(&mut self, _controller_index: usize, _value: u8) {}
 }
