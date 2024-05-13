@@ -5,10 +5,12 @@ use std::rc::Rc;
 use crate::Cartridge;
 use crate::NES6502;
 use crate::PPU;
+use crate::APU;
 
 pub trait BusLike {
   fn connect_cpu(&mut self, cpu: Rc<RefCell<NES6502>>);
   fn connect_ppu(&mut self, ppu: Rc<RefCell<PPU>>);
+  fn connect_apu(&mut self, apu: Rc<RefCell<APU>>);
   fn insert_cartridge(&mut self, cartridge: Rc<RefCell<Cartridge>>);
   fn cpu_read(&self, address: u16) -> u8;
   fn cpu_write(&mut self, address: u16, data: u8);
@@ -36,6 +38,7 @@ pub struct Bus {
   cartridge: Option<Rc<RefCell<Cartridge>>>,
   controllers: [u8; 2],
   controllers_state: Rc<RefCell<[u8; 2]>>,
+  apu: Option<Rc<RefCell<APU>>>,
   // Global cycle count
   global_cycles: u32,
   // DMA vars
@@ -52,6 +55,7 @@ impl Bus {
       cpu: None,
       cpu_ram: vec![0; 2048],
       ppu: None,
+      apu: None,
       cartridge: None,
       controllers: [0, 0],
       controllers_state: Rc::new(RefCell::new([0, 0])),
@@ -72,6 +76,10 @@ impl BusLike for Bus {
 
   fn connect_ppu(&mut self, ppu: Rc<RefCell<PPU>>) {
     self.ppu = Some(ppu);
+  }
+
+  fn connect_apu(&mut self, apu: Rc<RefCell<APU>>) {
+    self.apu = Some(apu);
   }
 
   fn insert_cartridge(&mut self, cartridge: Rc<RefCell<Cartridge>>) {
@@ -213,6 +221,8 @@ impl BusLike for MockBus {
   }
 
   fn connect_ppu(&mut self, _ppu: Rc<RefCell<PPU>>) {}
+
+  fn connect_apu(&mut self, _apu: Rc<RefCell<APU>>) {}
 
   fn insert_cartridge(&mut self, _cartridge: Rc<RefCell<Cartridge>>) {}
 

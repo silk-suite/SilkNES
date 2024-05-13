@@ -1,3 +1,4 @@
+pub mod apu;
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;
@@ -5,6 +6,7 @@ pub mod ppu;
 pub mod mapper;
 pub mod mapper0;
 
+use apu::APU;
 use bus::{Bus, BusLike};
 use cartridge::Cartridge;
 use cpu::NES6502;
@@ -14,7 +16,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use pixels::{Pixels, SurfaceTexture};
-//use rodio::{source::Source, OutputStream, Sink};
+use rodio::{source::Source, OutputStream, Sink};
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -48,6 +50,8 @@ fn main() {
 
     let ppu = Rc::new(RefCell::new(PPU::new()));
 
+    let apu = Rc::new(RefCell::new(APU::new()));
+
     // Connect bus to CPU
     {
         let mut bus_ref = bus.borrow_mut();
@@ -74,6 +78,20 @@ fn main() {
         let mut ppu_ref = ppu.borrow_mut();
         let bus_ref = Rc::clone(&bus);
         ppu_ref.connect_to_bus(Rc::clone(&bus_ref));
+    }
+
+    // Connect bus to APU
+    {
+        let mut bus_ref = bus.borrow_mut();
+        let apu_ref = Rc::clone(&apu);
+        bus_ref.connect_apu(Rc::clone(&apu_ref));
+    }
+
+    // Connect APU to bus
+    {
+        let mut apu_ref = apu.borrow_mut();
+        let bus_ref = Rc::clone(&bus);
+        apu_ref.connect_to_bus(Rc::clone(&bus_ref));
     }
 
     // Create cartridge
