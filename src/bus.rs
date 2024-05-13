@@ -101,6 +101,13 @@ impl BusLike for Bus {
           panic!("PPU is not connected!");
         }
       },
+      0x4015 => {
+        if let Some(apu) = &self.apu {
+          apu.as_ref().borrow_mut().cpu_read(address)
+        } else {
+          panic!("APU is not connected!");
+        }
+      },
       0x4016 | 0x4017 => {
         let index = (address & 0x1) as usize;
         let value = (self.controllers_state.as_ref().borrow()[index] & 0x80) > 0;
@@ -128,15 +135,27 @@ impl BusLike for Bus {
           ppu.as_ref().borrow_mut().cpu_write(address & 0x0007, value);
         }
       },
+      0x4000..=0x4013 => {
+        if let Some(apu) = &self.apu {
+          apu.as_ref().borrow_mut().cpu_write(address, value);
+        }
+      }
       0x4014 => {
         self.dma_page = value;
         self.dma_address = 0;
         self.dma_queued = true;
       }
-      0x4016 | 0x4017 => {
+      0x4016 => {
+        // NOTE: This seems to be inaccurate from the OLC video, fix later
+        // https://www.nesdev.org/wiki/Standard_controller#Input_.28.244016_write.29
         let index = (address & 0x1) as usize;
         self.controllers_state.borrow_mut()[index] = self.controllers[index];
       },
+      0x4017 => {
+        if let Some(apu) = &self.apu {
+          apu.as_ref().borrow_mut().cpu_write(address, value);
+        }
+      }
       _ => {}
     }
   }
