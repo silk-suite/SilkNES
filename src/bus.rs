@@ -17,16 +17,33 @@ pub trait BusLike {
   fn get_global_cycles(&self) -> u32;
   fn set_global_cycles(&mut self, cycles: u32);
   fn update_controller(&mut self, controller_index: usize, value: u8);
+  fn dma_queued(&self) -> bool;
+  fn set_dma_queued(&mut self, queued: bool);
+  fn dma_running(&self) -> bool;
+  fn set_dma_running(&mut self, running: bool);
+  fn dma_page(&self) -> u8;
+  fn dma_address(&self) -> u8;
+  fn set_dma_address(&mut self, address: u8);
+  fn dma_data(&self) -> u8;
+  fn set_dma_data(&mut self, data: u8);
 }
 
 pub struct Bus {
+  // Devices
   cpu: Option<Rc<RefCell<NES6502>>>,
   cpu_ram: Vec<u8>,
   ppu: Option<Rc<RefCell<PPU>>>,
   cartridge: Option<Rc<RefCell<Cartridge>>>,
-  pub controllers: [u8; 2],
+  controllers: [u8; 2],
   controllers_state: Rc<RefCell<[u8; 2]>>,
-  pub global_cycles: u32,
+  // Global cycle count
+  global_cycles: u32,
+  // DMA vars
+  dma_page: u8,
+  dma_address: u8,
+  dma_data: u8,
+  dma_queued: bool,
+  dma_running: bool,
 }
 
 impl Bus {
@@ -39,6 +56,11 @@ impl Bus {
       controllers: [0, 0],
       controllers_state: Rc::new(RefCell::new([0, 0])),
       global_cycles: 0,
+      dma_page: 0,
+      dma_address: 0,
+      dma_data: 0,
+      dma_queued: false,
+      dma_running: false,
     }
   }
 }
@@ -98,6 +120,11 @@ impl BusLike for Bus {
           ppu.as_ref().borrow_mut().cpu_write(address & 0x0007, value);
         }
       },
+      0x4014 => {
+        self.dma_page = value;
+        self.dma_address = 0;
+        self.dma_queued = true;
+      }
       0x4016 | 0x4017 => {
         let index = (address & 0x1) as usize;
         self.controllers_state.borrow_mut()[index] = self.controllers[index];
@@ -127,6 +154,42 @@ impl BusLike for Bus {
 
   fn update_controller(&mut self, controller_index: usize, value: u8) {
     self.controllers[controller_index] = value;
+  }
+
+  fn dma_queued(&self) -> bool {
+    self.dma_queued
+  }
+
+  fn set_dma_queued(&mut self, queued: bool) {
+    self.dma_queued = queued;
+  }
+
+  fn dma_running(&self) -> bool {
+    self.dma_running
+  }
+
+  fn set_dma_running(&mut self, running: bool) {
+    self.dma_running = running;
+  }
+
+  fn dma_page(&self) -> u8 {
+    self.dma_page
+  }
+
+  fn dma_address(&self) -> u8 {
+    self.dma_address
+  }
+
+  fn set_dma_address(&mut self, address: u8) {
+    self.dma_address = address;
+  }
+
+  fn dma_data(&self) -> u8 {
+    self.dma_data
+  }
+
+  fn set_dma_data(&mut self, data: u8) {
+    self.dma_data = data;
   }
 }
 
@@ -174,4 +237,32 @@ impl BusLike for MockBus {
   fn set_global_cycles(&mut self, _cycles: u32) {}
 
   fn update_controller(&mut self, _controller_index: usize, _value: u8) {}
+
+  fn dma_queued(&self) -> bool {
+    false
+  }
+
+  fn set_dma_queued(&mut self, _queued: bool) {}
+
+  fn dma_running(&self) -> bool {
+    false
+  }
+
+  fn set_dma_running(&mut self, _running: bool) {}
+
+  fn dma_page(&self) -> u8 {
+    0
+  }
+
+  fn dma_address(&self) -> u8 {
+    0
+  }
+
+  fn set_dma_address(&mut self, _address: u8) {}
+
+  fn dma_data(&self) -> u8 {
+    0
+  }
+
+  fn set_dma_data(&mut self, _data: u8) {}
 }

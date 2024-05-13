@@ -77,7 +77,7 @@ fn main() {
     }
 
     // Create cartridge
-    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/test/nestest.nes")));
+    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/donkeykong.nes")));
     {
         let mut bus_ref = bus.borrow_mut();
         let cartridge_ref = Rc::clone(&cartridge);
@@ -101,11 +101,46 @@ fn main() {
                 // Run the emulation
                 // It would be nice to just eventually step the bus itself,
                 // but the borrow checker is screwing me here so this is fine for now
-                for _ in 0..(341*262) { // Up the clock speed
-                    ppu.borrow_mut().step();
+                for _ in 0..(341*262) {
+                    // Grab some variables from the bus to use while stepping
                     let cycles = bus.borrow().get_global_cycles();
+                    let dma_running = bus.borrow().dma_running();
+                    let mut should_run_dma = false;
+
+                    ppu.borrow_mut().step();
                     if cycles % 3 == 0 {
-                        cpu.borrow_mut().step();
+                        if bus.borrow().dma_queued() && !dma_running {
+                            if cycles % 2 == 1 {
+                                should_run_dma = true;
+                            }
+                        } else if dma_running {
+                            if cycles % 2 == 0 {
+                                let dma_page = bus.borrow().dma_page() as u16;
+                                let dma_address = bus.borrow().dma_address() as u16;
+                                let dma_data = bus.borrow().cpu_read((dma_page << 8) | dma_address);
+                                bus.borrow_mut().set_dma_data(dma_data);
+                            } else {
+                                let mut dma_address = bus.borrow().dma_address();
+                                let dma_data = bus.borrow().dma_data();
+                                let oam_index = (dma_address / 4) as usize;
+                                match dma_address % 4 {
+                                    0 => ppu.borrow_mut().oam[oam_index].y = dma_data,
+                                    1 => ppu.borrow_mut().oam[oam_index].id = dma_data,
+                                    2 => ppu.borrow_mut().oam[oam_index].attributes.set_from_u8(dma_data),
+                                    3 => ppu.borrow_mut().oam[oam_index].x = dma_data,
+                                    _ => (),
+                                }
+                                dma_address = dma_address.wrapping_add(1);
+                                bus.borrow_mut().set_dma_address(dma_address);
+
+                                if dma_address == 0 {
+                                    bus.borrow_mut().set_dma_running(false);
+                                    bus.borrow_mut().set_dma_queued(false);
+                                }
+                            }
+                        } else {
+                            cpu.borrow_mut().step();
+                        }
                     }
                     let nmi = ppu.borrow().nmi;
                     if nmi {
@@ -113,6 +148,9 @@ fn main() {
                         cpu.borrow_mut().nmi();
                     }
                     bus.borrow_mut().set_global_cycles(cycles + 1);
+                    if should_run_dma {
+                        bus.borrow_mut().set_dma_running(true);
+                    }
                 }
 
                 // Draw to screen

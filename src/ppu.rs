@@ -11,8 +11,12 @@ pub struct PPUCTRL {
   pub nametable_x: bool,
   pub nametable_y: bool,
   pub increment_mode: bool,
+  /// Sprite pattern table address for 8x8 sprites
+  /// (0: $0000; 1: $1000; ignored in 8x16 mode)
   pub sprite_tile_select: bool,
+  /// Background pattern table address (0: $0000; 1: $1000)
   pub background_tile_select: bool,
+  /// Sprite size (0: 8x8 pixels; 1: 8x16 pixels)
   pub sprite_size: bool,
   pub slave_mode: bool,
   pub enable_nmi: bool,
@@ -177,6 +181,35 @@ pub const COLORS: [[u8; 4]; 0x40] = [
   [255, 255, 255, 255], [182, 225, 255, 255], [206, 209, 255, 255], [233, 195, 255, 255], [255, 188, 255, 255], [255, 189, 244, 255], [255, 198, 195, 255], [255, 213, 154, 255], [233, 230, 129, 255], [206, 244, 129, 255], [182, 251, 154, 255], [169, 250, 195, 255], [169, 240, 244, 255], [184, 184, 184, 255], [0, 0, 0, 255], [0, 0, 0, 255],
 ];
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct OAMAttributes {
+  pub palette: u8,
+  pub priority: bool,
+  pub flip_vertically: bool,
+  pub flip_horizontally: bool,
+}
+
+impl OAMAttributes {
+  pub fn to_u8(&self) -> u8 {
+    ((self.flip_horizontally as u8) << 7) | ((self.flip_vertically as u8) << 6) | ((self.priority as u8) << 5) | self.palette
+  }
+
+  pub fn set_from_u8(&mut self, value: u8) {
+    self.palette = value & 0b0000_0011;
+    self.priority = (value & 0b0010_0000) > 0;
+    self.flip_horizontally = (value & 0b0100_0000) > 0;
+    self.flip_vertically = (value & 0b1000_0000) > 0;
+  }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct OAMSprite {
+  pub y: u8,
+  pub id: u8,
+  pub attributes: OAMAttributes,
+  pub x: u8,
+}
+
 pub struct PPU {
   bus: Option<Rc<RefCell<Box<dyn BusLike>>>>,
   cartridge: Option<Rc<RefCell<Cartridge>>>,
@@ -184,12 +217,13 @@ pub struct PPU {
   pub nametables: [[u8; 0x400]; 2],
   palette: [u8; 32],
   pattern: [[u8; 0x1000]; 2],
-  cycle_count: u32,
-  scanline_count: i32,
+  cycle_count: u16,
+  scanline_count: i16,
   frame_complete: bool,
   registers: PPURegisters,
   buffered_data: u8,
   pub nmi: bool,
+  // Background rendering
   bg_next_tile_id: u8,
   bg_next_tile_attrib: u8,
   bg_next_tile_lsb: u8,
@@ -198,6 +232,15 @@ pub struct PPU {
   bg_pattern_shift_high: u16,
   bg_attrib_shift_low: u16,
   bg_attrib_shift_high: u16,
+  // Foreground rendering
+  pub oam: [OAMSprite; 64],
+  oam_address: u8,
+  active_sprites: Vec<OAMSprite>,
+  sprite_count: u8,
+  sprite_shift_low: [u8; 8],
+  sprite_shift_high: [u8; 8],
+  sprite_zero_hit_possible: bool,
+  sprite_zero_being_rendered: bool,
 }
 
 impl PPU {
@@ -223,6 +266,14 @@ impl PPU {
       bg_pattern_shift_high: 0,
       bg_attrib_shift_low: 0,
       bg_attrib_shift_high: 0,
+      oam: [OAMSprite::default(); 64],
+      oam_address: 0,
+      active_sprites: Vec::new(),
+      sprite_count: 0,
+      sprite_shift_low: [0; 8],
+      sprite_shift_high: [0; 8],
+      sprite_zero_hit_possible: false,
+      sprite_zero_being_rendered: false,
     }
   }
 
@@ -249,8 +300,14 @@ impl PPU {
       },
       0x0003 => 0, // OAMADDR (not readable)
       0x0004 => { // OAMDATA
-        println!("TODO: OAMDATA READ");
-        0
+        let entry = self.oam[(self.oam_address / 4) as usize];
+        match self.oam_address % 4 {
+          0 => entry.y,
+          1 => entry.id,
+          2 => entry.attributes.to_u8(),
+          3 => entry.x,
+          _ => panic!("Invalid OAM address: {:#04X}", self.oam_address),
+        }
       },
       0x0005 => 0, // SCROLL (not readable)
       0x0006 => 0, // ADDR (not readable)
@@ -287,10 +344,17 @@ impl PPU {
         panic!("Cannot write to PPU status register");
       },
       0x0003 => { // OAMADDR
-        println!("TODO: OAMADDR")
+        self.oam_address = value;
       },
       0x0004 => { // OAMDATA
-        println!("TODO: OAMDATA WRITE")
+        let entry = &mut self.oam[(self.oam_address / 4) as usize];
+        match self.oam_address % 4 {
+          0 => entry.y = value,
+          1 => entry.id = value,
+          2 => entry.attributes.set_from_u8(value),
+          3 => entry.x = value,
+          _ => panic!("Invalid OAM address: {:#04X}", self.oam_address),
+        }
       },
       0x0005 => { // SCROLL
         if !self.registers.internal.write_latch {
@@ -426,7 +490,19 @@ impl PPU {
       }
 
       if self.scanline_count == -1 && self.cycle_count == 1 {
+        // Reset status register values
         self.registers.status.vertical_blank = false;
+        self.registers.status.sprite_overflow = false;
+        self.registers.status.sprite_zero_hit = false;
+
+        // Reset sprite shifter values
+        for i in 0..8 as usize {
+          self.sprite_shift_low[i] = 0;
+          self.sprite_shift_high[i] = 0;
+        }
+
+        // Clear secondary OAM
+        self.active_sprites.clear();
       }
 
       if (self.cycle_count >= 2 && self.cycle_count < 258) || (self.cycle_count >= 321 && self.cycle_count < 338) {
@@ -438,6 +514,18 @@ impl PPU {
           self.bg_attrib_shift_high <<= 1;
         }
 
+        if self.registers.mask.sprite_enable && self.cycle_count >= 1 && self.cycle_count < 258 {
+          for i in 0..self.active_sprites.len() {
+            if self.active_sprites[i].x > 0 {
+              self.active_sprites[i].x -= 1;
+            } else {
+              self.sprite_shift_low[i] <<= 1;
+              self.sprite_shift_high[i] <<= 1;
+            }
+          }
+        }
+
+        // Run background rendering tasks
         match (self.cycle_count - 1) % 8 {
           0 => {
             // Load background shifters
@@ -536,6 +624,97 @@ impl PPU {
           self.registers.internal.v.set_fine_y(self.registers.internal.t.fine_y);
         }
       }
+
+      if self.cycle_count == 257 && self.scanline_count >= 0 {
+        self.active_sprites.clear();
+        self.sprite_count = 0;
+        for i in 0..8 as usize {
+          self.sprite_shift_low[i] = 0;
+          self.sprite_shift_high[i] = 0;
+        }
+        self.sprite_zero_hit_possible = false;
+
+        for i in 0..64 as usize {
+          // If diff is positive, scanline is overlapping sprite location
+          let diff = self.scanline_count - self.oam[i].y as i16;
+          let sprite_size = if self.registers.ctrl.sprite_size { 16 } else { 8 };
+
+          if diff >= 0 && diff < sprite_size {
+            if self.sprite_count < 8 {
+              if i == 0 {
+                self.sprite_zero_hit_possible = true;
+              }
+              self.active_sprites.push(self.oam[i]);
+              self.sprite_count += 1;
+            }
+          }
+
+          if self.sprite_count == 9 {
+            self.registers.status.sprite_overflow = true;
+            break;
+          }
+        }
+      }
+
+      if self.cycle_count == 340 {
+        for i in 0..self.sprite_count as usize {
+          let mut sprite_pattern_bits_low: u8;
+          let mut sprite_pattern_bits_high: u8;
+          let sprite_pattern_address_low: u16;
+          let sprite_pattern_address_high: u16;
+
+          if !self.registers.ctrl.sprite_size { // 8x8 sprites
+            if !self.active_sprites[i].attributes.flip_vertically {
+              sprite_pattern_address_low = ((self.registers.ctrl.sprite_tile_select as u16) << 12) |
+                ((self.active_sprites[i].id as u16) << 4) |
+                (self.scanline_count - self.active_sprites[i].y as i16) as u16;
+            } else {
+              sprite_pattern_address_low = ((self.registers.ctrl.sprite_tile_select as u16) << 12) |
+                ((self.active_sprites[i].id as u16) << 4) |
+                (7 - (self.scanline_count - self.active_sprites[i].y as i16)) as u16;
+            }
+          } else { // 8x16 sprites
+            if !self.active_sprites[i].attributes.flip_vertically {
+              if (self.scanline_count - self.active_sprites[i].y as i16) < 8 {
+                // Reading top half of tile
+                sprite_pattern_address_low = ((self.active_sprites[i].id as u16 & 0x01) << 12) |
+                  ((self.active_sprites[i].id as u16 & 0xFE) << 4) |
+                  ((self.scanline_count - self.active_sprites[i].y as i16) & 0x07) as u16;
+              } else {
+                // Reading bottom half of tile
+                sprite_pattern_address_low = ((self.active_sprites[i].id as u16 & 0x01) << 12) |
+                  (((self.active_sprites[i].id as u16 & 0xFE) + 1) << 4) |
+                  (((self.scanline_count - self.active_sprites[i].y as i16) & 0x07)) as u16;
+              }
+            } else {
+              if (self.scanline_count - self.active_sprites[i].y as i16) < 8 {
+                // Reading top half of tile
+                sprite_pattern_address_low = ((self.active_sprites[i].id as u16 & 0x01) << 12) |
+                  (((self.active_sprites[i].id as u16 & 0xFE) + 1) << 4) |
+                  (7 - (self.scanline_count - self.active_sprites[i].y as i16) & 0x07) as u16;
+              } else {
+                // Reading bottom half of tile
+                sprite_pattern_address_low = ((self.active_sprites[i].id as u16 & 0x01) << 12) |
+                  (((self.active_sprites[i].id as u16 & 0xFE)) << 4) |
+                  (7 - ((self.scanline_count - self.active_sprites[i].y as i16) & 0x07)) as u16;
+              }
+            }
+          }
+
+          sprite_pattern_address_high = sprite_pattern_address_low + 8;
+
+          sprite_pattern_bits_low = self.ppu_read(sprite_pattern_address_low);
+          sprite_pattern_bits_high = self.ppu_read(sprite_pattern_address_high);
+
+          if self.active_sprites[i].attributes.flip_horizontally {
+            sprite_pattern_bits_low = sprite_pattern_bits_low.reverse_bits();
+            sprite_pattern_bits_high = sprite_pattern_bits_high.reverse_bits();
+          }
+
+          self.sprite_shift_low[i] = sprite_pattern_bits_low;
+          self.sprite_shift_high[i] = sprite_pattern_bits_high;
+        }
+      }
     }
 
     if self.scanline_count == 240 {
@@ -551,6 +730,7 @@ impl PPU {
       }
     }
 
+    // Background rendering
     let mut bg_pixel = 0;
     let mut bg_pal = 0;
     if self.registers.mask.background_enable {
@@ -563,13 +743,80 @@ impl PPU {
       let bg_pal0 = ((self.bg_attrib_shift_low & bit_mux) > 0) as u8;
       let bg_pal1 = ((self.bg_attrib_shift_high & bit_mux) > 0) as u8;
       bg_pal = (bg_pal1 << 1) | bg_pal0;
+    }
 
+    // Foreground rendering
+    let mut fg_pixel = 0;
+    let mut fg_pal = 0;
+    let mut fg_priority = 0;
+    if self.registers.mask.sprite_enable {
+      self.sprite_zero_being_rendered = false;
+
+      for i in 0..self.active_sprites.len() as usize {
+        if self.active_sprites[i].x == 0 {
+          let fg_pixel_low = ((self.sprite_shift_low[i] & 0x80) > 0) as u8;
+          let fg_pixel_high = ((self.sprite_shift_high[i] & 0x80) > 0) as u8;
+          fg_pixel = (fg_pixel_high << 1) | fg_pixel_low;
+
+          fg_pal = self.active_sprites[i].attributes.palette + 0x04;
+          fg_priority = !(self.active_sprites[i].attributes.priority) as u8;
+
+          if fg_pixel != 0 {
+            if i == 0 {
+              self.sprite_zero_being_rendered = true;
+            }
+
+            break;
+          }
+        }
+      }
+    }
+
+    // BG+FG composite
+    let mut pixel: u8 = 0;
+    let mut pal: u8 = 0;
+
+    if bg_pixel == 0 && fg_pixel == 0 {
+      // BG and FG are both transparent, draw background color
+      pixel = 0;
+      pal = 0;
+    } else if bg_pixel == 0 && fg_pixel > 0 {
+      // BG is transparent, FG is visible
+      pixel = fg_pixel;
+      pal = fg_pal;
+    } else if bg_pixel > 0 && fg_pixel == 0 {
+      // BG is visible, FG is transparent
+      pixel = bg_pixel;
+      pal = bg_pal;
+    } else if bg_pixel > 0 && fg_pixel > 0 {
+      // BG and FG are visible, check priority
+      if fg_priority > 0 {
+        pixel = fg_pixel;
+        pal = fg_pal;
+      } else {
+        pixel = bg_pixel;
+        pal = bg_pal;
+      }
+    }
+
+    if self.sprite_zero_hit_possible && self.sprite_zero_being_rendered {
+      if self.registers.mask.background_enable && self.registers.mask.sprite_enable {
+        if !(self.registers.mask.background_left_column_enable || self.registers.mask.sprite_left_column_enable) {
+          if self.cycle_count >= 9 && self.cycle_count <= 258 {
+            self.registers.status.sprite_zero_hit = true;
+          }
+        } else {
+          if self.cycle_count >= 1 && self.cycle_count <= 258 {
+            self.registers.status.sprite_zero_hit = true;
+          }
+        }
+      }
     }
 
     if self.scanline_count < 240 && self.cycle_count < 256 {
       let index = self.scanline_count as usize * 256 + (self.cycle_count as usize - 1);
       if index < self.screen.len() {
-        self.screen[index] = self.get_color_from_palette(bg_pal.into(), bg_pixel.into());
+        self.screen[index] = self.get_color_from_palette(pal.into(), pixel.into());
       }
     }
 
