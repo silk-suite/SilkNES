@@ -657,7 +657,7 @@ impl PPU {
       }
 
       if self.cycle_count == 340 {
-        for i in 0..self.sprite_count as usize {
+        for i in 0..self.active_sprites.len() {
           let mut sprite_pattern_bits_low: u8;
           let mut sprite_pattern_bits_high: u8;
           let sprite_pattern_address_low: u16;
