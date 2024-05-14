@@ -30,7 +30,7 @@ fn main() {
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new()
         .with_inner_size(LogicalSize::new(512, 480))
-        .with_title("NESilk")
+        .with_title("SilkNES")
         .build(&event_loop)
         .unwrap();
     let mut input = WinitInputHelper::new();
