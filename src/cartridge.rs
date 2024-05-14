@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::fs;
 use std::path::Path;
 
@@ -16,12 +17,17 @@ pub struct Cartridge {
   pub prg_rom: Vec<u8>,
   pub chr_rom: Vec<u8>,
   mapper: Box<dyn Mapper>,
+  has_ram: bool,
 }
 
 impl Cartridge {
   pub fn from_rom(rom_path: &str) -> Self {
     let bytes = fs::read(Path::new(rom_path)).expect(&format!("Failed to load ROM from supplied path: {}", rom_path));
-    match parse_header(&bytes) {
+    Cartridge::from_bytes(bytes)
+  }
+
+  pub fn from_bytes(rom_bytes: Vec<u8>) -> Self {
+    match parse_header(&rom_bytes) {
       Ok(header_info) => {
         let mapper_id = (header_info.flags6 & 0b1111_0000) >> 4 | (header_info.flags7 & 0b1111_0000);
         let mapper = match mapper_id {
@@ -32,40 +38,24 @@ impl Cartridge {
           4 => Box::new(Mapper4::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
           _ => panic!("Mapper {} not implemented.", mapper_id),
         };
-        let prg_start: u16 = 0x0010;
-        let prg_end: u16 = prg_start + (0x4000 * header_info.prg_rom_size as u16);
-        let chr_start: u16 = prg_end;
-        let chr_end: u16 = chr_start + (0x2000 * header_info.chr_rom_size as u16);
-        Self {
-          header_info,
-          mapper_id,
-          prg_rom: bytes[prg_start as usize..prg_end as usize].to_vec(),
-          chr_rom: bytes[chr_start as usize..chr_end as usize].to_vec(),
-          mapper,
-        }
-      },
-      Err(_) => panic!("Failed to parse ROM from supplied path: {}.", rom_path),
-    }
-  }
-
-  pub fn from_bytes(rom_bytes: Vec<u8>) -> Self {
-    match parse_header(&rom_bytes) {
-      Ok(header_info) => {
-        let mapper_id = (header_info.flags6 & 0b1111_0000) >> 4 | (header_info.flags7 & 0b1111_0000);
-        let mapper = match mapper_id {
-          0 => Box::new(Mapper0::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
-          _ => panic!("Mapper {} not implemented.", mapper_id),
+        let prg_start: u32 = 0x0010;
+        let prg_end: u32 = prg_start + (0x4000 * header_info.prg_rom_size as u32);
+        let chr_start: u32 = prg_end;
+        let chr_end: u32 = chr_start + (0x2000 * header_info.chr_rom_size as u32);
+        println!("PRG: {:#06X} - {:#06X}, CHR: {:#06X} - {:#06X}", prg_start, prg_end, chr_start, chr_end);
+        let chr_rom = if header_info.chr_rom_size == 0 {
+          vec![0; 0x2000]
+        } else {
+          rom_bytes[chr_start as usize..chr_end as usize].to_vec()
         };
-        let prg_start: u16 = 0x0010;
-        let prg_end: u16 = prg_start + (0x4000 * header_info.prg_rom_size as u16);
-        let chr_start: u16 = prg_end;
-        let chr_end: u16 = chr_start + (0x2000 * header_info.chr_rom_size as u16);
+        let has_ram = (header_info.flags6 & 0b0000_0010) != 0;
         Self {
           header_info,
           mapper_id,
           prg_rom: rom_bytes[prg_start as usize..prg_end as usize].to_vec(),
-          chr_rom: rom_bytes[chr_start as usize..chr_end as usize].to_vec(),
+          chr_rom,
           mapper,
+          has_ram,
         }
       },
       Err(_) => panic!("Failed to parse ROM from supplied bytes."),
@@ -77,13 +67,17 @@ impl Cartridge {
   }
 
   pub fn cpu_write(&mut self, address: u16, value: u8) {
-    self.prg_rom[self.mapper.get_mapped_address_cpu(address) as usize] = value
+    if self.has_ram {
+      self.prg_rom[self.mapper.get_mapped_address_cpu(address) as usize] = value
+    } else {
+      self.mapper.mapped_cpu_write(address, value);
+    }
   }
 
   pub fn ppu_read(&self, address: u16) -> u8 {
-    let mapped_address = self.mapper.get_mapped_address_ppu(address);
-    if (mapped_address as usize) < self.chr_rom.len() {
-      self.chr_rom[mapped_address as usize]
+    let mapped_address = self.mapper.get_mapped_address_ppu(address) as usize;
+    if (mapped_address) < self.chr_rom.len() {
+      self.chr_rom[mapped_address]
     } else {
       0
     }
@@ -132,7 +126,7 @@ pub enum Format {
   Unknown,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct HeaderInfo {
   pub format: Format,
   pub prg_rom_size: u8,
@@ -142,6 +136,21 @@ pub struct HeaderInfo {
   pub flags8: u8,
   pub flags9: u8,
   pub flags10: u8,
+}
+
+impl Debug for HeaderInfo {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("HeaderInfo")
+      .field("format", &self.format)
+      .field("prg_rom_size", &self.prg_rom_size)
+      .field("chr_rom_size", &self.chr_rom_size)
+      .field("flags6", &format!("{:08b}", &self.flags6))
+      .field("flags7", &format!("{:08b}", &self.flags7))
+      .field("flags8", &format!("{:08b}", &self.flags8))
+      .field("flags9", &format!("{:08b}", &self.flags9))
+      .field("flags10", &format!("{:08b}", &self.flags10))
+      .finish()
+  }
 }
 
 fn parse_header(bytes: &[u8]) -> Result<HeaderInfo, &str> {

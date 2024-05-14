@@ -15,11 +15,13 @@ impl Mapper4 {
 }
 
 impl Mapper for Mapper4 {
-  fn get_mapped_address_cpu(&self, address: u16) -> u16 {
+  fn get_mapped_address_cpu(&self, address: u16) -> u32 {
     todo!()
   }
 
-  fn get_mapped_address_ppu(&self, address: u16) -> u16 {
+  fn get_mapped_address_ppu(&self, address: u16) -> u32 {
     todo!()
   }
+
+  fn mapped_cpu_write(&mut self, address: u16, value: u8) {}
 }

@@ -15,20 +15,22 @@ impl Mapper0 {
 }
 
 impl Mapper for Mapper0 {
-  fn get_mapped_address_cpu(&self, address: u16) -> u16 {
+  fn get_mapped_address_cpu(&self, address: u16) -> u32 {
     if address >= 0x8000 {
       let mask = if self.prg_rom_banks > 1 { 0x7FFF } else { 0x3FFF };
-      return (address & mask) as u16;
+      return (address & mask) as u32;
     } else {
       0
     }
   }
 
-  fn get_mapped_address_ppu(&self, address: u16) -> u16 {
+  fn get_mapped_address_ppu(&self, address: u16) -> u32 {
     if address <= 0x1FFF {
-      address
+      address as u32
     } else {
       panic!("Tried to get mapped address for: {:04X}", address);
     }
   }
+
+  fn mapped_cpu_write(&mut self, address: u16, value: u8) {}
 }

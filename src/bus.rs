@@ -155,7 +155,14 @@ impl BusLike for Bus {
         if let Some(apu) = &self.apu {
           apu.as_ref().borrow_mut().cpu_write(address, value);
         }
-      }
+      },
+      0x8000..=0xFFFF => {
+        if let Some(cartridge) = &self.cartridge {
+          cartridge.as_ref().borrow_mut().cpu_write(address, value);
+        } else {
+          panic!("Cartridge is not connected!");
+        }
+      },
       _ => {}
     }
   }

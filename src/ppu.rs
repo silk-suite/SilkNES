@@ -395,7 +395,11 @@ impl PPU {
       panic!("Cartridge is not attached to PPU!");
     };
     if masked <= 0x1FFF {
-      cartridge.ppu_read(address)
+      if cartridge.header_info.chr_rom_size > 0 {
+        cartridge.ppu_read(address)
+      } else {
+        self.pattern[((address & 0x1000) >> 12) as usize][(address & 0x0FFF) as usize]
+      }
     } else if masked >= 0x2000 && masked <= 0x3EFF {
       //println!("PPU READ from address {:#04X} at scanline {} cycle {}", masked, self.scanline_count, self.cycle_count);
       // Nametables
