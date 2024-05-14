@@ -332,16 +332,17 @@ impl PPU {
   // CPU is writing to PPU
   pub fn cpu_write(&mut self, address: u16, value: u8) {
     match address {
-      0x0000 => {
+      0x0000 => { // CTRL
         self.registers.ctrl.set_from_u8(value);
         self.registers.internal.t.set_nametable_x(self.registers.ctrl.nametable_x);
         self.registers.internal.t.set_nametable_y(self.registers.ctrl.nametable_y);
       },
-      0x0001 => {
+      0x0001 => { // MASK
         self.registers.mask.set_from_u8(value);
       },
-      0x0002 => {
-        panic!("Cannot write to PPU status register");
+      0x0002 => { // STATUS
+        // Writing to this register does nothing, but it's interesting that it's happening at all
+        println!("Caught a write to the PPU status register with value: {:02X}", value);
       },
       0x0003 => { // OAMADDR
         self.oam_address = value;
