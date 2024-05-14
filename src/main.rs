@@ -4,7 +4,7 @@ pub mod cartridge;
 pub mod cpu;
 pub mod ppu;
 pub mod mapper;
-pub mod mapper0;
+pub mod mappers;
 
 use apu::APU;
 use bus::{Bus, BusLike};
@@ -95,7 +95,7 @@ fn main() {
     }
 
     // Create cartridge
-    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/donkeykong.nes")));
+    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/castlevania.nes")));
     {
         let mut bus_ref = bus.borrow_mut();
         let cartridge_ref = Rc::clone(&cartridge);
@@ -168,6 +168,9 @@ fn main() {
                     bus.borrow_mut().set_global_cycles(cycles + 1);
                     if should_run_dma {
                         bus.borrow_mut().set_dma_running(true);
+                    }
+                    if cpu.borrow().total_cycles % 2 == 0 {
+                        apu.borrow_mut().step();
                     }
                 }
 

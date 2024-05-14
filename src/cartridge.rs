@@ -2,7 +2,13 @@ use std::fs;
 use std::path::Path;
 
 use crate::mapper::Mapper;
-use crate::mapper0::Mapper0;
+use crate::mappers::{
+  mapper0::Mapper0,
+  mapper1::Mapper1,
+  mapper2::Mapper2,
+  mapper3::Mapper3,
+  mapper4::Mapper4,
+};
 
 pub struct Cartridge {
   pub header_info: HeaderInfo,
@@ -20,6 +26,10 @@ impl Cartridge {
         let mapper_id = (header_info.flags6 & 0b1111_0000) >> 4 | (header_info.flags7 & 0b1111_0000);
         let mapper = match mapper_id {
           0 => Box::new(Mapper0::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
+          1 => Box::new(Mapper1::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
+          2 => Box::new(Mapper2::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
+          3 => Box::new(Mapper3::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
+          4 => Box::new(Mapper4::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
           _ => panic!("Mapper {} not implemented.", mapper_id),
         };
         let prg_start: u16 = 0x0010;
@@ -28,7 +38,7 @@ impl Cartridge {
         let chr_end: u16 = chr_start + (0x2000 * header_info.chr_rom_size as u16);
         Self {
           header_info,
-          mapper_id: 0, // hardcode for now, will detect from ROM in future
+          mapper_id,
           prg_rom: bytes[prg_start as usize..prg_end as usize].to_vec(),
           chr_rom: bytes[chr_start as usize..chr_end as usize].to_vec(),
           mapper,
