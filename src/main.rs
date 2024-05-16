@@ -1,4 +1,5 @@
 pub mod apu;
+pub mod apu_output;
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;
@@ -7,6 +8,7 @@ pub mod mapper;
 pub mod mappers;
 
 use apu::APU;
+use apu_output::APUOutput;
 use bus::{Bus, BusLike};
 use cartridge::Cartridge;
 use cpu::NES6502;
@@ -14,6 +16,7 @@ use ppu::PPU;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::mpsc;
 
 use pixels::{Pixels, SurfaceTexture};
 use rodio::{source::Source, OutputStream, Sink};
@@ -33,6 +36,11 @@ fn main() {
         .with_title("SilkNES")
         .build(&event_loop)
         .unwrap();
+    // let debug_window = WindowBuilder::new()
+    //     .with_inner_size(LogicalSize::new(512, 480))
+    //     .with_title("SilkNES Debug")
+    //     .build(&event_loop)
+    //     .unwrap();
     let mut input = WinitInputHelper::new();
     let mut pixels = {
         let window_size = window.inner_size();
@@ -95,7 +103,7 @@ fn main() {
     }
 
     // Create cartridge
-    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/castlevania.nes")));
+    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/donkeykong.nes")));
     {
         let mut bus_ref = bus.borrow_mut();
         let cartridge_ref = Rc::clone(&cartridge);
@@ -103,6 +111,14 @@ fn main() {
     }
 
     cpu.borrow_mut().reset();
+
+    // Setup audio
+    let (tx, rx) = mpsc::channel();
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+    let sink = Sink::try_new(&stream_handle).unwrap();
+    // Add a dummy source of the sake of the example.
+    let source = APUOutput::new(440.0, rx).amplify(0.10);
+    sink.append(source);
 
     event_loop.set_control_flow(ControlFlow::Poll);
     
@@ -119,6 +135,7 @@ fn main() {
                 // Run the emulation
                 // It would be nice to just eventually step the bus itself,
                 // but the borrow checker is screwing me here so this is fine for now
+                let mut audio_buffer = Vec::new();
                 for _ in 0..(341*262) {
                     // Grab some variables from the bus to use while stepping
                     let cycles = bus.borrow().get_global_cycles();
@@ -158,6 +175,7 @@ fn main() {
                             }
                         } else {
                             cpu.borrow_mut().step();
+                            apu.borrow_mut().step(cycles);
                         }
                     }
                     let nmi = ppu.borrow().nmi;
@@ -169,10 +187,14 @@ fn main() {
                     if should_run_dma {
                         bus.borrow_mut().set_dma_running(true);
                     }
-                    if cpu.borrow().total_cycles % 2 == 0 {
-                        apu.borrow_mut().step();
+                    if bus.borrow().get_global_cycles() % 112 == 0 {
+                        audio_buffer.push(apu.borrow_mut().get_output());
                     }
                 }
+
+                // Update audio
+                //println!("Audio buffer: {:?}", audio_buffer);
+                tx.send(audio_buffer).unwrap();
 
                 // Draw to screen
                 let display = ppu.borrow().get_screen();

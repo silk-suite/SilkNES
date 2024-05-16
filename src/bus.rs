@@ -144,6 +144,11 @@ impl BusLike for Bus {
         self.dma_page = value;
         self.dma_address = 0;
         self.dma_queued = true;
+      },
+      0x4015 => {
+        if let Some(apu) = &self.apu {
+          apu.as_ref().borrow_mut().cpu_write(address, value);
+        }
       }
       0x4016 => {
         // NOTE: This seems to be inaccurate from the OLC video, fix later
