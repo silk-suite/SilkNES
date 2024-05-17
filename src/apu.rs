@@ -318,7 +318,7 @@ impl APU {
         self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0xFF00) | (value as u16);
       },
       0x4003 => {
-        self.registers.pulse_1.length_counter = value & 0b1111_1000 >> 3;
+        self.registers.pulse_1.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
         self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16;
         self.registers.pulse_1.envelope_start_flag = true;
       },
@@ -339,7 +339,7 @@ impl APU {
         self.registers.pulse_2.timer_period = (self.registers.pulse_2.timer_period & 0xFF00) | (value as u16);
       },
       0x4007 => {
-        self.registers.pulse_2.length_counter = value & 0b1111_1000 >> 3;
+        self.registers.pulse_2.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
         self.registers.pulse_2.timer_period = (self.registers.pulse_2.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16;
         self.registers.pulse_2.envelope_start_flag = true;
       }

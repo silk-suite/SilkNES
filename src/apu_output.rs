@@ -1,16 +1,13 @@
 use std::collections::VecDeque;
-use std::f32::consts::PI;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use rodio::source::Source;
 
-/// An infinite source that produces a sine.
+/// An infinite source representing the NES APU output.
 ///
 /// Always has a rate of 48kHz and one channel.
 pub struct APUOutput {
-  freq: f32,
-  num_sample: usize,
   apu_messenger: Receiver<Vec<f32>>,
   buffer: VecDeque<f32>,
 }
@@ -18,10 +15,8 @@ pub struct APUOutput {
 impl APUOutput {
   /// The frequency of the square wave.
   #[inline]
-  pub fn new(freq: f32, apu_messenger: Receiver<Vec<f32>>) -> APUOutput {
+  pub fn new(apu_messenger: Receiver<Vec<f32>>) -> APUOutput {
     APUOutput {
-      freq,
-      num_sample: 0,
       apu_messenger,
       buffer: vec![].into(),
     }
