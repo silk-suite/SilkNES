@@ -90,6 +90,16 @@ impl Pulse {
     self.muted = self.timer_period < 8 || self.target_period > 0x07FF;
   }
 
+  pub fn tick_sequencer(&mut self) {
+    if self.length_counter > 0 {
+      self.sequencer_counter -= 1;
+      if self.sequencer_counter == 0 {
+        self.sequencer_counter = self.timer_period;
+        self.sequencer_cycle = (self.sequencer_cycle + 1) % 8;
+      }
+    }
+  }
+
   pub fn get_output(&mut self, enabled: bool) -> f32 {
     if !enabled || self.length_counter == 0 || self.muted {
       0.0
@@ -134,6 +144,16 @@ impl Triangle {
   pub fn tick_length_counter(&mut self) {
     if self.length_counter > 0 && !self.control_flag {
       self.length_counter -= 1;
+    }
+  }
+
+  pub fn tick_sequencer(&mut self) {
+    if self.length_counter > 0 && self.linear_counter > 0 {
+      self.counter -= 1;
+      if self.counter == 0 {
+        self.counter = self.timer_period;
+        self.sequence_cycle = (self.sequence_cycle + 1) % 32;
+      }
     }
   }
 
@@ -240,31 +260,13 @@ impl APU {
   pub fn step(&mut self, cpu_cycles: u32) {
     let mut reset = false;
 
-    if self.registers.triangle.length_counter > 0 && self.registers.triangle.linear_counter > 0 {
-      self.registers.triangle.counter -= 1;
-      if self.registers.triangle.counter == 0 {
-        self.registers.triangle.counter = self.registers.triangle.timer_period;
-        self.registers.triangle.sequence_cycle = (self.registers.triangle.sequence_cycle + 1) % 32;
-      }
-    }
+    self.registers.triangle.tick_sequencer();
 
     if cpu_cycles % 2 == 0 {
-      if self.registers.pulse_1.length_counter > 0 {
-        self.registers.pulse_1.sequencer_counter -= 1;
-        if self.registers.pulse_1.sequencer_counter == 0 {
-          self.registers.pulse_1.sequencer_counter = self.registers.pulse_1.timer_period;
-          self.registers.pulse_1.sequencer_cycle = (self.registers.pulse_1.sequencer_cycle + 1) % 8;
-        }
-      }
-  
-      if self.registers.pulse_2.length_counter > 0 {
-        self.registers.pulse_2.sequencer_counter -= 1;
-        if self.registers.pulse_2.sequencer_counter == 0 {
-          self.registers.pulse_2.sequencer_counter = self.registers.pulse_2.timer_period;
-          self.registers.pulse_2.sequencer_cycle = (self.registers.pulse_2.sequencer_cycle + 1) % 8;
-        }
-      }
-      
+      self.registers.pulse_1.tick_sequencer();
+      self.registers.pulse_2.tick_sequencer();
+
+
       match self.total_cycles {
         3729 => {
           self.registers.pulse_1.tick_envelope();
