@@ -175,7 +175,7 @@ fn main() {
                             }
                         } else {
                             cpu.borrow_mut().step();
-                            apu.borrow_mut().step(cycles);
+                            apu.borrow_mut().step(cpu.borrow().total_cycles);
                         }
                     }
                     let nmi = ppu.borrow().nmi;

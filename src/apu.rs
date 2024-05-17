@@ -61,19 +61,19 @@ pub struct Triangle {
 }
 
 impl Triangle {
-  pub fn step(&mut self, half_frame: bool, enabled: bool) {
+  pub fn step(&mut self, half_frame: bool) {
     if self.linear_counter_reload_flag {
       self.linear_counter = self.linear_counter_reload_value;
     } else if self.linear_counter > 0 {
-      self.linear_counter = self.linear_counter.wrapping_sub(1);
+      self.linear_counter -= 1;
     }
 
     if !self.control_flag {
       self.linear_counter_reload_flag = false;
     }
 
-    if self.length_counter > 0 && half_frame && !self.control_flag && enabled {
-      self.length_counter = self.length_counter.wrapping_sub(1);
+    if self.length_counter > 0 && half_frame && !self.control_flag {
+      self.length_counter -= 1;
     }
   }
 
@@ -177,43 +177,42 @@ impl APU {
     self.bus = Some(bus);
   }
 
-  pub fn step(&mut self, global_cycles: u32) {
+  pub fn step(&mut self, cpu_cycles: u32) {
     let mut reset = false;
 
     if self.registers.triangle.length_counter > 0 && self.registers.triangle.linear_counter > 0 {
+      self.registers.triangle.counter -= 1;
       if self.registers.triangle.counter == 0 {
         self.registers.triangle.counter = self.registers.triangle.timer_period;
         self.registers.triangle.sequence_cycle = (self.registers.triangle.sequence_cycle + 1) % 32;
-        println!("Incrementing sequence cycle to {}", self.registers.triangle.sequence_cycle);
       }
-      self.registers.triangle.counter -= 1;
     }
 
-    if global_cycles % 2 == 0 {
+    if cpu_cycles % 2 == 0 {
       match self.total_cycles {
         3729 => {
-          self.registers.triangle.step(false, self.registers.status.triangle_active);
+          self.registers.triangle.step(false);
         }
         7457 => {
-          self.registers.triangle.step(true, self.registers.status.triangle_active);
+          self.registers.triangle.step(true);
         }
         11186 => {
-          self.registers.triangle.step(false, self.registers.status.triangle_active);
+          self.registers.triangle.step(false);
         }
         14915 => {
-          if self.registers.frame_counter.mode {
-            self.registers.triangle.step(true, self.registers.status.triangle_active);
-          } else {
-            self.registers.triangle.step(false, self.registers.status.triangle_active);
+          if !self.registers.frame_counter.mode {
+            self.registers.triangle.step(true);
             reset = true;
             if !self.registers.frame_counter.irq_inhibit {
               self.irq_triggered = true;
             }
+          } else {
+            self.registers.triangle.step(false);
           }
         },
         18641 => {
           if self.registers.frame_counter.mode {
-            self.registers.triangle.step(true, self.registers.status.triangle_active);
+            self.registers.triangle.step(true);
             reset = true;
           }
         }
@@ -277,7 +276,7 @@ impl APU {
       // Triangle
       0x4008 => {
         self.registers.triangle.control_flag = (value & 0b1000_0000) != 0;
-        self.registers.triangle.linear_counter = value & 0b0111_1111;
+        self.registers.triangle.linear_counter_reload_value = value & 0b0111_1111;
       },
       0x400A => {
         self.registers.triangle.timer_period = (self.registers.triangle.timer_period & 0xFF00) | (value as u16);
@@ -286,7 +285,6 @@ impl APU {
         self.registers.triangle.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
         self.registers.triangle.timer_period = (self.registers.triangle.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16;
         self.registers.triangle.linear_counter_reload_flag = true;
-        println!("Triangle period now: {}", self.registers.triangle.timer_period);
       },
       // Noise
       0x400C => {
