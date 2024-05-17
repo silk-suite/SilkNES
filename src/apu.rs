@@ -26,6 +26,8 @@ pub struct Pulse {
   sweep_period: u8,
   sweep_negate: bool,
   sweep_shift_count: u8,
+  sweep_reload_flag: bool,
+  sweep_counter: u8,
   timer_period: u16,
   sequencer_cycle: usize,
   sequencer_counter: u16,
@@ -33,6 +35,8 @@ pub struct Pulse {
   envelope_decay_level: u8,
   envelope_start_flag: bool,
   envelope_counter: u8,
+  target_period: u16,
+  muted: bool,
 }
 
 impl Pulse {
@@ -62,11 +66,32 @@ impl Pulse {
   }
 
   pub fn tick_sweep(&mut self) {
-    todo!()
+    if self.sweep_counter == 0 && self.sweep_enabled && self.sweep_shift_count > 0 {
+      // Calculate target period
+      let change_amount = (self.sweep_period >> self.sweep_shift_count) as u16;
+      if self.sweep_negate {
+        self.target_period = self.timer_period.saturating_sub(change_amount);
+      } else {
+        self.target_period = self.timer_period.wrapping_add(change_amount);
+      }
+
+      if !self.muted {
+        self.timer_period = self.target_period;
+      }
+    }
+
+    if self.sweep_counter == 0 || self.sweep_reload_flag {
+      self.sweep_counter = self.sweep_period;
+      self.sweep_reload_flag = false;
+    }
+    self.sweep_counter -= 1;
+
+    // Set mute
+    self.muted = self.timer_period < 8 || self.target_period > 0x07FF;
   }
 
   pub fn get_output(&mut self, enabled: bool) -> f32 {
-    if !enabled || self.length_counter == 0 {
+    if !enabled || self.length_counter == 0 || self.muted {
       0.0
     } else {
       let duty_cycle_value = PULSE_SEQUENCE[self.duty_cycle as usize][self.sequencer_cycle];
@@ -215,22 +240,6 @@ impl APU {
   pub fn step(&mut self, cpu_cycles: u32) {
     let mut reset = false;
 
-    if self.registers.pulse_1.length_counter > 0 {
-      self.registers.pulse_1.sequencer_counter -= 1;
-      if self.registers.pulse_1.sequencer_counter == 0 {
-        self.registers.pulse_1.sequencer_counter = self.registers.pulse_1.timer_period;
-        self.registers.pulse_1.sequencer_cycle = (self.registers.pulse_1.sequencer_cycle + 1) % 8;
-      }
-    }
-
-    if self.registers.pulse_2.length_counter > 0 {
-      self.registers.pulse_2.sequencer_counter -= 1;
-      if self.registers.pulse_2.sequencer_counter == 0 {
-        self.registers.pulse_2.sequencer_counter = self.registers.pulse_2.timer_period;
-        self.registers.pulse_2.sequencer_cycle = (self.registers.pulse_2.sequencer_cycle + 1) % 8;
-      }
-    }
-
     if self.registers.triangle.length_counter > 0 && self.registers.triangle.linear_counter > 0 {
       self.registers.triangle.counter -= 1;
       if self.registers.triangle.counter == 0 {
@@ -240,6 +249,22 @@ impl APU {
     }
 
     if cpu_cycles % 2 == 0 {
+      if self.registers.pulse_1.length_counter > 0 {
+        self.registers.pulse_1.sequencer_counter -= 1;
+        if self.registers.pulse_1.sequencer_counter == 0 {
+          self.registers.pulse_1.sequencer_counter = self.registers.pulse_1.timer_period;
+          self.registers.pulse_1.sequencer_cycle = (self.registers.pulse_1.sequencer_cycle + 1) % 8;
+        }
+      }
+  
+      if self.registers.pulse_2.length_counter > 0 {
+        self.registers.pulse_2.sequencer_counter -= 1;
+        if self.registers.pulse_2.sequencer_counter == 0 {
+          self.registers.pulse_2.sequencer_counter = self.registers.pulse_2.timer_period;
+          self.registers.pulse_2.sequencer_cycle = (self.registers.pulse_2.sequencer_cycle + 1) % 8;
+        }
+      }
+      
       match self.total_cycles {
         3729 => {
           self.registers.pulse_1.tick_envelope();
@@ -249,6 +274,8 @@ impl APU {
         7457 => {
           self.registers.pulse_1.tick_envelope();
           self.registers.pulse_2.tick_envelope();
+          self.registers.pulse_1.tick_sweep();
+          self.registers.pulse_2.tick_sweep();
           self.registers.pulse_1.tick_length_counter();
           self.registers.pulse_2.tick_length_counter();
           self.registers.triangle.tick_linear_counter();
@@ -263,6 +290,8 @@ impl APU {
           if !self.registers.frame_counter.mode {
             self.registers.pulse_1.tick_envelope();
             self.registers.pulse_2.tick_envelope();
+            self.registers.pulse_1.tick_sweep();
+            self.registers.pulse_2.tick_sweep();
             self.registers.pulse_1.tick_length_counter();
             self.registers.pulse_2.tick_length_counter();
             self.registers.triangle.tick_linear_counter();
@@ -277,6 +306,8 @@ impl APU {
           if self.registers.frame_counter.mode {
             self.registers.pulse_1.tick_envelope();
             self.registers.pulse_2.tick_envelope();
+            self.registers.pulse_1.tick_sweep();
+            self.registers.pulse_2.tick_sweep();
             self.registers.pulse_1.tick_length_counter();
             self.registers.pulse_2.tick_length_counter();
             self.registers.triangle.tick_linear_counter();
@@ -303,16 +334,17 @@ impl APU {
     match address {
       // Pulse 1
       0x4000 => {
-        self.registers.pulse_1.duty_cycle = (value & 0b1100_0000) >> 6;
+        self.registers.pulse_1.duty_cycle = value & 0b1100_0000 >> 6;
         self.registers.pulse_1.length_counter_halt = value & 0b0010_0000 != 0;
         self.registers.pulse_1.constant_flag = value & 0b0001_0000 != 0;
         self.registers.pulse_1.envelope_volume = value & 0b0000_1111;
       },
       0x4001 => {
         self.registers.pulse_1.sweep_enabled = value & 0b1000_0000 != 0;
-        self.registers.pulse_1.sweep_period = (value & 0b0111_0000) >> 4;
+        self.registers.pulse_1.sweep_period = value & 0b0111_0000 >> 4;
         self.registers.pulse_1.sweep_negate = value & 0b0000_1000 != 0;
         self.registers.pulse_1.sweep_shift_count = value & 0b0000_0111;
+        self.registers.pulse_1.sweep_reload_flag = true;
       },
       0x4002 => {
         self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0xFF00) | (value as u16);
@@ -331,9 +363,10 @@ impl APU {
       },
       0x4005 => {
         self.registers.pulse_2.sweep_enabled = value & 0b1000_0000 != 0;
-        self.registers.pulse_2.sweep_period = (value & 0b0111_0000) >> 4;
+        self.registers.pulse_2.sweep_period = value & 0b0111_0000 >> 4;
         self.registers.pulse_2.sweep_negate = value & 0b0000_1000 != 0;
         self.registers.pulse_2.sweep_shift_count = value & 0b0000_0111;
+        self.registers.pulse_2.sweep_reload_flag = true;
       },
       0x4006 => {
         self.registers.pulse_2.timer_period = (self.registers.pulse_2.timer_period & 0xFF00) | (value as u16);

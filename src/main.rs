@@ -116,8 +116,7 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     let sink = Sink::try_new(&stream_handle).unwrap();
-    // Add a dummy source of the sake of the example.
-    let source = APUOutput::new(440.0, rx).amplify(0.25);
+    let source = APUOutput::new(rx).amplify(0.25);
     sink.append(source);
 
     event_loop.set_control_flow(ControlFlow::Poll);
