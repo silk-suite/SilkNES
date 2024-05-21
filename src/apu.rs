@@ -66,25 +66,19 @@ impl Pulse {
   }
 
   pub fn tick_sweep(&mut self) {
-    if self.sweep_counter == 0 && self.sweep_enabled && self.sweep_shift_count > 0 {
-      // Calculate target period
-      let change_amount = (self.sweep_period >> self.sweep_shift_count) as u16;
-      if self.sweep_negate {
-        self.target_period = self.timer_period.saturating_sub(change_amount);
-      } else {
-        self.target_period = self.timer_period.wrapping_add(change_amount);
-      }
-
+    if self.sweep_counter == 0 && self.sweep_shift_count > 0 && self.sweep_enabled {
       if !self.muted {
         self.timer_period = self.target_period;
       }
+
+      self.sweep_counter = self.sweep_period;
     }
 
-    if self.sweep_counter == 0 || self.sweep_reload_flag {
-      self.sweep_counter = self.sweep_period;
-      self.sweep_reload_flag = false;
-    }
     self.sweep_counter -= 1;
+    if self.sweep_reload_flag {
+      self.sweep_reload_flag = false;
+      self.sweep_counter = self.sweep_period;
+    }
 
     // Set mute
     self.muted = self.timer_period < 8 || self.target_period > 0x07FF;
@@ -94,9 +88,20 @@ impl Pulse {
     if self.length_counter > 0 {
       self.sequencer_counter -= 1;
       if self.sequencer_counter == 0 {
-        self.sequencer_counter = self.timer_period;
+        self.sequencer_counter = self.target_period;
         self.sequencer_cycle = (self.sequencer_cycle + 1) % 8;
       }
+    }
+  }
+
+  pub fn update_target_period(&mut self) {
+    // Calculate target period
+    let change_amount = (self.timer_period >> self.sweep_shift_count) as u16;
+
+    if self.sweep_negate {
+      self.target_period = self.timer_period.saturating_sub(change_amount);
+    } else {
+      self.target_period = self.timer_period.wrapping_add(change_amount);
     }
   }
 
@@ -347,14 +352,17 @@ impl APU {
         self.registers.pulse_1.sweep_negate = value & 0b0000_1000 != 0;
         self.registers.pulse_1.sweep_shift_count = value & 0b0000_0111;
         self.registers.pulse_1.sweep_reload_flag = true;
+        self.registers.pulse_1.update_target_period();
       },
       0x4002 => {
         self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0xFF00) | (value as u16);
+        self.registers.pulse_1.update_target_period();
       },
       0x4003 => {
         self.registers.pulse_1.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
         self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16;
         self.registers.pulse_1.envelope_start_flag = true;
+        self.registers.pulse_1.update_target_period();
       },
       // Pulse 2
       0x4004 => {
@@ -369,14 +377,17 @@ impl APU {
         self.registers.pulse_2.sweep_negate = value & 0b0000_1000 != 0;
         self.registers.pulse_2.sweep_shift_count = value & 0b0000_0111;
         self.registers.pulse_2.sweep_reload_flag = true;
+        self.registers.pulse_2.update_target_period();
       },
       0x4006 => {
         self.registers.pulse_2.timer_period = (self.registers.pulse_2.timer_period & 0xFF00) | (value as u16);
+        self.registers.pulse_2.update_target_period();
       },
       0x4007 => {
         self.registers.pulse_2.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
-        self.registers.pulse_2.timer_period = (self.registers.pulse_2.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16;
+        self.registers.pulse_2.timer_period = ((self.registers.pulse_2.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16);
         self.registers.pulse_2.envelope_start_flag = true;
+        self.registers.pulse_2.update_target_period();
       }
       // Triangle
       0x4008 => {
