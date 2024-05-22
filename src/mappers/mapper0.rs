@@ -1,3 +1,4 @@
+use crate::cartridge::MirroringMode;
 use crate::mapper::Mapper;
 
 pub struct Mapper0 {
@@ -33,4 +34,8 @@ impl Mapper for Mapper0 {
   }
 
   fn mapped_cpu_write(&mut self, address: u16, value: u8) {}
+
+  fn mirroring_mode(&self) -> MirroringMode {
+    MirroringMode::_Hardwired
+  }
 }

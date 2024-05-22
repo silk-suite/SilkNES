@@ -1,3 +1,4 @@
+use crate::cartridge::MirroringMode;
 use crate::mapper::Mapper;
 
 pub struct Mapper3 {
@@ -38,5 +39,9 @@ impl Mapper for Mapper3 {
     if address >= 0x8000 {
       self.bank_select = value & 0xF;
     }
+  }
+
+  fn mirroring_mode(&self) -> MirroringMode {
+    MirroringMode::_Hardwired
   }
 }

@@ -94,10 +94,15 @@ impl Cartridge {
   }
 
   pub fn get_nametable_layout(&self) -> MirroringMode {
-    if self.header_info.flags6 & 0b0000_0001 == 1 {
-      MirroringMode::Vertical
+    let mapper_mirroring_mode = self.mapper.mirroring_mode();
+    if mapper_mirroring_mode == MirroringMode::_Hardwired {
+      if self.header_info.flags6 & 0b0000_0001 == 1 {
+        MirroringMode::Vertical
+      } else {
+        MirroringMode::Horizontal
+      }
     } else {
-      MirroringMode::Horizontal
+      mapper_mirroring_mode
     }
   }
 
@@ -118,9 +123,14 @@ impl Cartridge {
   }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MirroringMode {
+  /// This enum is returned by a mapper if it does not override nametable mirroring
+  _Hardwired,
   Horizontal,
   Vertical,
+  SingleScreenLow,
+  SingleScreenHigh,
 }
 
 #[allow(non_camel_case_types)]

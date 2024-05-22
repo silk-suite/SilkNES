@@ -1,3 +1,4 @@
+use crate::cartridge::MirroringMode;
 use crate::mapper::Mapper;
 
 pub struct Mapper4 {
@@ -23,5 +24,9 @@ impl Mapper for Mapper4 {
     todo!()
   }
 
-  fn mapped_cpu_write(&mut self, address: u16, value: u8) {}
+  fn mapped_cpu_write(&mut self, _address: u16, _value: u8) {}
+
+  fn mirroring_mode(&self) -> MirroringMode {
+    todo!()
+  }
 }

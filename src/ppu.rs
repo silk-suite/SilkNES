@@ -416,7 +416,6 @@ impl PPU {
           }
         },
         MirroringMode::Horizontal => {
-          //println!("Nametable index: {}", ((address & 0x03FF) as usize));
           match masked {
             0x0000..=0x03FF => self.nametables[0][(address & 0x03FF) as usize],
             0x0400..=0x07FF => self.nametables[0][(address & 0x03FF) as usize],
@@ -425,6 +424,13 @@ impl PPU {
             _ => panic!("Invalid address for PPU read: {:#04X}", address),
           }
         },
+        MirroringMode::SingleScreenLow => {
+          self.nametables[0][(address & 0x03FF) as usize]
+        },
+        MirroringMode::SingleScreenHigh => {
+          self.nametables[1][(address & 0x03FF) as usize]
+        },
+        _ => panic!("Invalid mirroring mode for PPU read: {:?}", cartridge.get_nametable_layout()),
       }
     } else if masked >= 0x3F00 && masked <= 0x3FFF {
       let pallete_address = match address & 0x001F {
@@ -472,6 +478,13 @@ impl PPU {
             _ => panic!("Invalid address for PPU write: {:#04X}", masked),
           }
         },
+        MirroringMode::SingleScreenLow => {
+          self.nametables[0][masked & 0x03FF] = value
+        },
+        MirroringMode::SingleScreenHigh => {
+          self.nametables[1][masked & 0x03FF] = value
+        },
+        _ => panic!("Invalid mirroring mode for PPU write: {:?}", cartridge.get_nametable_layout()),
       }
     } else if masked >= 0x3F00 && masked <= 0x3FFF {
       let masked = match address & 0x001F {

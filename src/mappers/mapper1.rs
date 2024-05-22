@@ -123,4 +123,14 @@ impl Mapper for Mapper1 {
       self.registers.shift_register_writes = 0;
     }
   }
+
+  fn mirroring_mode(&self) -> crate::cartridge::MirroringMode {
+      match (self.registers.control_register & 0b10000) >> 4 {
+        0 => crate::cartridge::MirroringMode::SingleScreenLow,
+        1 => crate::cartridge::MirroringMode::SingleScreenHigh,
+        2 => crate::cartridge::MirroringMode::Vertical,
+        3 => crate::cartridge::MirroringMode::Horizontal,
+        _ => panic!("Invalid mirroring mode for MMC1: {}", (self.registers.control_register & 0b10000) >> 4),
+      }
+  }
 }
