@@ -17,7 +17,8 @@ pub struct Cartridge {
   pub prg_rom: Vec<u8>,
   pub chr_rom: Vec<u8>,
   mapper: Box<dyn Mapper>,
-  has_ram: bool,
+  pub has_ram: bool,
+  pub ram: Vec<u8>,
 }
 
 impl Cartridge {
@@ -56,6 +57,7 @@ impl Cartridge {
           chr_rom,
           mapper,
           has_ram,
+          ram: vec![0; 0x8000],
         }
       },
       Err(_) => panic!("Failed to parse ROM from supplied bytes."),
@@ -63,12 +65,16 @@ impl Cartridge {
   }
 
   pub fn cpu_read(&self, address: u16) -> u8 {
-    self.prg_rom[self.mapper.get_mapped_address_cpu(address) as usize]
+    if self.has_ram && address >= 0x6000 && address <= 0x7FFF {
+      self.ram[self.mapper.get_mapped_address_cpu(address) as usize]
+    } else {
+      self.prg_rom[self.mapper.get_mapped_address_cpu(address) as usize]
+    }
   }
 
   pub fn cpu_write(&mut self, address: u16, value: u8) {
-    if self.has_ram {
-      self.prg_rom[self.mapper.get_mapped_address_cpu(address) as usize] = value
+    if self.has_ram && address >= 0x6000 && address <= 0x7FFF {
+      self.ram[self.mapper.get_mapped_address_cpu(address) as usize] = value
     } else {
       self.mapper.mapped_cpu_write(address, value);
     }

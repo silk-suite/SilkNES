@@ -114,6 +114,17 @@ impl BusLike for Bus {
         self.controllers_state.borrow_mut()[index] <<= 1;
         value as u8
       },
+      0x6000..=0x7FFF => {
+        if let Some(cartridge) = &self.cartridge {
+          if cartridge.as_ref().borrow().has_ram {
+            cartridge.as_ref().borrow().cpu_read(address)
+          } else {
+            0
+          }
+        } else {
+          panic!("Cartridge is not connected!");
+        }
+      }
       0x8000..=0xFFFF => {
         if let Some(cartridge) = &self.cartridge {
           cartridge.as_ref().borrow().cpu_read(address)
@@ -161,6 +172,15 @@ impl BusLike for Bus {
           apu.as_ref().borrow_mut().cpu_write(address, value);
         }
       },
+      0x6000..=0x7FFF => {
+        if let Some(cartridge) = &self.cartridge {
+          if cartridge.as_ref().borrow().has_ram {
+            cartridge.as_ref().borrow_mut().cpu_write(address, value);
+          }
+        } else {
+          panic!("Cartridge is not connected!");
+        }
+      }
       0x8000..=0xFFFF => {
         if let Some(cartridge) = &self.cartridge {
           cartridge.as_ref().borrow_mut().cpu_write(address, value);
