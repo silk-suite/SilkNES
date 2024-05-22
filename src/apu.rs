@@ -36,6 +36,7 @@ pub struct Pulse {
   envelope_start_flag: bool,
   envelope_counter: u8,
   target_period: u16,
+  raw_period: u16,
   muted: bool,
 }
 
@@ -66,29 +67,31 @@ impl Pulse {
   }
 
   pub fn tick_sweep(&mut self) {
+    self.sweep_counter -= 1;
+
     if self.sweep_counter == 0 && self.sweep_shift_count > 0 && self.sweep_enabled {
       if !self.muted {
         self.timer_period = self.target_period;
+        self.update_target_period();
       }
 
       self.sweep_counter = self.sweep_period;
     }
 
-    self.sweep_counter -= 1;
     if self.sweep_reload_flag {
       self.sweep_reload_flag = false;
       self.sweep_counter = self.sweep_period;
     }
 
     // Set mute
-    self.muted = self.timer_period < 8 || self.target_period > 0x07FF;
+    self.muted = self.raw_period < 8 || self.target_period > 0x07FF;
   }
 
   pub fn tick_sequencer(&mut self) {
     if self.length_counter > 0 {
       self.sequencer_counter -= 1;
       if self.sequencer_counter == 0 {
-        self.sequencer_counter = self.target_period;
+        self.sequencer_counter = self.timer_period;
         self.sequencer_cycle = (self.sequencer_cycle + 1) % 8;
       }
     }
@@ -96,12 +99,12 @@ impl Pulse {
 
   pub fn update_target_period(&mut self) {
     // Calculate target period
-    let change_amount = (self.timer_period >> self.sweep_shift_count) as u16;
+    let change_amount = (self.raw_period >> self.sweep_shift_count) as u16;
 
     if self.sweep_negate {
-      self.target_period = self.timer_period.saturating_sub(change_amount);
+      self.target_period = self.raw_period.saturating_sub(change_amount);
     } else {
-      self.target_period = self.timer_period.wrapping_add(change_amount);
+      self.target_period = self.raw_period.wrapping_add(change_amount);
     }
   }
 
@@ -171,14 +174,81 @@ impl Triangle {
   }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+const NOISE_PERIOD_SEQUENCE: [u16; 16] = [
+  4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
+];
+
+#[derive(Debug, Clone, Copy)]
 pub struct Noise {
   length_counter_halt: bool,
   constant_flag: bool,
-  volume: u8,
-  loop_noise: bool,
-  loop_period: u8,
+  mode: bool,
+  noise_period: u16,
   length_counter: u8,
+  shift_register: u16,
+  envelope_volume: u8,
+  envelope_decay_level: u8,
+  envelope_start_flag: bool,
+  envelope_counter: u8,
+}
+
+impl Default for Noise {
+  fn default() -> Self {
+    Self {
+      length_counter_halt: false,
+      constant_flag: false,
+      mode: false,
+      noise_period: 0,
+      length_counter: 0,
+      shift_register: 1,
+      envelope_volume: 0,
+      envelope_decay_level: 0,
+      envelope_start_flag: false,
+      envelope_counter: 0,
+    }
+  }
+}
+
+impl Noise {
+  pub fn tick_shift_register(&mut self) {
+    let feedback = (self.shift_register & 0x1) ^ if self.mode { self.shift_register & 0x40 } else { self.shift_register & 0x2 };
+    self.shift_register >>= 1;
+    self.shift_register |= feedback << 14;
+  }
+
+  pub fn tick_length_counter(&mut self) {
+    if self.length_counter > 0 && !self.length_counter_halt {
+      self.length_counter -= 1;
+    }
+  }
+
+  pub fn tick_envelope(&mut self) {
+    if !self.envelope_start_flag {
+      self.envelope_counter -= 1;
+      if self.envelope_counter == 0 {
+        self.envelope_counter = self.envelope_volume;
+        if self.envelope_decay_level > 0 {
+          self.envelope_decay_level -= 1;
+        }
+        if self.envelope_decay_level == 0 && self.length_counter_halt {
+          self.envelope_decay_level = 15;
+        }
+      }
+    } else {
+      self.envelope_start_flag = false;
+      self.envelope_decay_level = 15;
+      self.envelope_counter = self.envelope_volume;
+    }
+  }
+
+  pub fn get_output(&mut self, enabled: bool) -> f32 {
+    if !enabled || self.length_counter == 0 || self.shift_register & 0x1 != 0 {
+      0.0
+    } else {
+      let envelope_value = if self.constant_flag { self.envelope_volume } else { self.envelope_decay_level };
+      envelope_value as f32
+    }
+  }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -266,43 +336,53 @@ impl APU {
     let mut reset = false;
 
     self.registers.triangle.tick_sequencer();
+    self.registers.pulse_1.update_target_period();
+    self.registers.pulse_2.update_target_period();
 
     if cpu_cycles % 2 == 0 {
       self.registers.pulse_1.tick_sequencer();
       self.registers.pulse_2.tick_sequencer();
-
+      if self.registers.noise.noise_period > 0 && cpu_cycles % self.registers.noise.noise_period as u32 == 0 {
+        self.registers.noise.tick_shift_register();
+      }
 
       match self.total_cycles {
         3729 => {
           self.registers.pulse_1.tick_envelope();
           self.registers.pulse_2.tick_envelope();
+          self.registers.noise.tick_envelope();
           self.registers.triangle.tick_linear_counter();
         }
         7457 => {
           self.registers.pulse_1.tick_envelope();
           self.registers.pulse_2.tick_envelope();
+          self.registers.noise.tick_envelope();
           self.registers.pulse_1.tick_sweep();
           self.registers.pulse_2.tick_sweep();
           self.registers.pulse_1.tick_length_counter();
           self.registers.pulse_2.tick_length_counter();
           self.registers.triangle.tick_linear_counter();
           self.registers.triangle.tick_length_counter();
+          self.registers.noise.tick_length_counter();
         }
         11186 => {
           self.registers.pulse_1.tick_envelope();
           self.registers.pulse_2.tick_envelope();
+          self.registers.noise.tick_envelope();
           self.registers.triangle.tick_linear_counter();
         }
         14915 => {
           if !self.registers.frame_counter.mode {
             self.registers.pulse_1.tick_envelope();
             self.registers.pulse_2.tick_envelope();
+            self.registers.noise.tick_envelope();
             self.registers.pulse_1.tick_sweep();
             self.registers.pulse_2.tick_sweep();
             self.registers.pulse_1.tick_length_counter();
             self.registers.pulse_2.tick_length_counter();
             self.registers.triangle.tick_linear_counter();
             self.registers.triangle.tick_length_counter();
+            self.registers.noise.tick_length_counter();
             reset = true;
             if !self.registers.frame_counter.irq_inhibit {
               self.irq_triggered = true;
@@ -319,6 +399,7 @@ impl APU {
             self.registers.pulse_2.tick_length_counter();
             self.registers.triangle.tick_linear_counter();
             self.registers.triangle.tick_length_counter();
+            self.registers.noise.tick_length_counter();
             reset = true;
           }
         }
@@ -356,13 +437,16 @@ impl APU {
       },
       0x4002 => {
         self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0xFF00) | (value as u16);
+        self.registers.pulse_1.raw_period = self.registers.pulse_1.timer_period;
         self.registers.pulse_1.update_target_period();
       },
       0x4003 => {
         self.registers.pulse_1.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
         self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16;
+        self.registers.pulse_1.raw_period = self.registers.pulse_1.timer_period;
         self.registers.pulse_1.envelope_start_flag = true;
         self.registers.pulse_1.update_target_period();
+        self.registers.pulse_1.sequencer_cycle = 0;
       },
       // Pulse 2
       0x4004 => {
@@ -381,13 +465,16 @@ impl APU {
       },
       0x4006 => {
         self.registers.pulse_2.timer_period = (self.registers.pulse_2.timer_period & 0xFF00) | (value as u16);
+        self.registers.pulse_2.raw_period = self.registers.pulse_2.timer_period;
         self.registers.pulse_2.update_target_period();
       },
       0x4007 => {
         self.registers.pulse_2.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
         self.registers.pulse_2.timer_period = ((self.registers.pulse_2.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16);
+        self.registers.pulse_2.raw_period = self.registers.pulse_2.timer_period;
         self.registers.pulse_2.envelope_start_flag = true;
         self.registers.pulse_2.update_target_period();
+        self.registers.pulse_2.sequencer_cycle = 0;
       }
       // Triangle
       0x4008 => {
@@ -406,14 +493,15 @@ impl APU {
       0x400C => {
         self.registers.noise.length_counter_halt = value & 0b0010_0000 != 0;
         self.registers.noise.constant_flag = value & 0b0001_0000 != 0;
-        self.registers.noise.volume = value & 0b0000_1111;
+        self.registers.noise.envelope_volume = value & 0b0000_1111;
       },
       0x400E => {
-        self.registers.noise.loop_noise = value & 0b1000_0000 != 0;
-        self.registers.noise.loop_period = value & 0b0000_1111;
+        self.registers.noise.mode = value & 0b1000_0000 != 0;
+        self.registers.noise.noise_period = NOISE_PERIOD_SEQUENCE[(value & 0b0000_1111) as usize];
       },
       0x400F => {
         self.registers.noise.length_counter = value & 0b1111_1000 >> 3;
+        self.registers.noise.envelope_counter = self.registers.noise.envelope_volume;
       },
       // DMC
       0x4010 => {
@@ -451,7 +539,7 @@ impl APU {
     let pulse1_out = self.registers.pulse_1.get_output(self.registers.status.pulse_1_active);
     let pulse2_out = self.registers.pulse_2.get_output(self.registers.status.pulse_2_active);
     let triangle_out = self.registers.triangle.get_output(self.registers.status.triangle_active);
-    let noise_out = 0.0;
+    let noise_out = 0.0;//self.registers.noise.get_output(self.registers.status.noise_active);
     let dmc_out = 0.0;
 
     let pulse_out = 95.88 / ((8218.0 / (pulse1_out + pulse2_out)) + 100.0);
