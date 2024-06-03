@@ -268,20 +268,86 @@ impl Noise {
   }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+const DMC_RATES: [u16; 16] = [
+  428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
+];
+
+#[derive(Clone)]
 pub struct DMC {
   irq_enable: bool,
   loop_sample: bool,
-  frequency_index: u8,
-  counter: u8,
-  sample_address: u8,
-  sample_length: u8,
+  rate: u16,
+  output: u8,
+  sample_address: u16,
+  sample_length: u16,
+  // Memory reader
+  memory_reader_address: u16,
+  bytes_remaining: u16,
+  sample_buffer: u8,
+  // Ouput unit
+  output_unit_timer: u16,
+  shift_register: u8,
+  bits_remaining: u8,
+  silence_flag: bool,
+}
+
+impl Default for DMC {
+  fn default() -> Self {
+    Self {
+      irq_enable: false,
+      loop_sample: false,
+      rate: 0,
+      output: 0,
+      sample_address: 0xC000,
+      sample_length: 1,
+      memory_reader_address: 0,
+      bytes_remaining: 0,
+      sample_buffer: 0,
+      output_unit_timer: 0,
+      shift_register: 0,
+      bits_remaining: 0,
+      silence_flag: false,
+    }
+  }
+}
+
+impl DMC {
+  pub fn reset(&mut self) {
+    self.memory_reader_address = self.sample_address;
+    self.bytes_remaining = self.sample_length;
+  }
+
+  pub fn tick_output_unit(&mut self) {
+    self.output_unit_timer -= 1;
+    if self.output_unit_timer == 0 {
+      if !self.silence_flag {
+        if self.shift_register & 0x1 != 0 && self.output <= 125 {
+          self.output += 2;
+        } else if self.shift_register & 0x1 == 0 && self.output >= 2 {
+          self.output -= 2;
+        }
+      }
+      self.shift_register >>= 1;
+      self.bits_remaining -= 1;
+      if self.bits_remaining == 0 {
+        self.bits_remaining = 8;
+        if self.sample_buffer == 0 {
+          self.silence_flag = true;
+        } else {
+          self.silence_flag = false;
+          self.shift_register = self.sample_buffer;
+        }
+      }
+
+      self.output_unit_timer = self.rate;
+    }
+  }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct APUStatus {
-  dmc_interrupt: bool,
-  frame_interrupt: bool,
+  pub dmc_interrupt: bool,
+  pub frame_interrupt: bool,
   dmc_active: bool,
   noise_active: bool,
   triangle_active: bool,
@@ -317,14 +383,14 @@ pub struct APUFrameCounter {
   irq_inhibit: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub struct APURegisters {
   pulse_1: Pulse,
   pulse_2: Pulse,
   triangle: Triangle,
   noise: Noise,
   dmc: DMC,
-  status: APUStatus,
+  pub status: APUStatus,
   frame_counter: APUFrameCounter,
 }
 
@@ -344,7 +410,7 @@ impl Default for APURegisters {
 
 pub struct APU {
   bus: Option<Rc<RefCell<Box<dyn BusLike>>>>,
-  registers: APURegisters,
+  pub registers: APURegisters,
   pub total_cycles: u32,
   pub irq_triggered: bool,
 }
@@ -360,7 +426,23 @@ impl APU {
   }
 
   pub fn connect_to_bus(&mut self, bus: Rc<RefCell<Box<dyn BusLike>>>) {
-    self.bus = Some(bus);
+    self.bus = Some(bus.clone());
+  }
+
+  pub fn read(&self, address: u16) -> u8 {
+    if let Some(bus) = &self.bus {
+      bus.borrow().cpu_read(address)
+    } else {
+      panic!("Tried to read from bus before it was connected!");
+    }
+  }
+
+  pub fn write(&mut self, address: u16, value: u8) {
+    if let Some(bus) = &self.bus {
+      bus.borrow_mut().cpu_write(address, value);
+    } else {
+      panic!("Tried to write to bus before it was connected!");
+    }
   }
 
   pub fn tick_quarter_frame(&mut self) {
@@ -390,6 +472,24 @@ impl APU {
     self.registers.pulse_2.update_target_period();
     self.registers.triangle.tick_sequencer();
     self.registers.noise.tick_shift_register();
+    // Don't love doing this here but will fix it later
+    // DMC MEMORY READER
+    if self.registers.dmc.sample_buffer == 0 && self.registers.dmc.bytes_remaining > 0 {
+      self.registers.dmc.sample_buffer = self.read(self.registers.dmc.sample_address);
+      self.registers.dmc.memory_reader_address = match self.registers.dmc.memory_reader_address.overflowing_add(1) {
+        (_, true) => 0x8000,
+        (address, false) => address,
+      };
+      self.registers.dmc.bytes_remaining -= 1;
+      if self.registers.dmc.bytes_remaining == 0 {
+        if self.registers.dmc.loop_sample {
+          self.registers.dmc.reset();
+        } else if self.registers.dmc.irq_enable {
+          self.registers.status.dmc_interrupt = true;
+        }
+      }
+    }
+    self.registers.dmc.tick_output_unit();
 
     if cpu_cycles % 2 == 0 {
       self.registers.pulse_1.tick_sequencer();
@@ -410,7 +510,7 @@ impl APU {
             self.tick_half_frame();
             reset = true;
             if !self.registers.frame_counter.irq_inhibit {
-              self.irq_triggered = true;
+              self.registers.status.frame_interrupt = true;
             }
           }
         },
@@ -429,7 +529,39 @@ impl APU {
 
   pub fn cpu_read(&mut self, address: u16) -> u8 {
     match address {
-      0x4015 => self.registers.status.to_u8(),
+      0x4015 => {
+        let mut value = 0;
+        if self.registers.pulse_1.length_counter > 0 {
+          value |= 0b0000_0001;
+        }
+
+        if self.registers.pulse_2.length_counter > 0 {
+          value |= 0b0000_0010;
+        }
+
+        if self.registers.triangle.length_counter > 0 {
+          value |= 0b0000_0100;
+        }
+
+        if self.registers.noise.length_counter > 0 {
+          value |= 0b0000_1000;
+        }
+
+        if self.registers.dmc.bytes_remaining > 0 {
+          value |= 0b0001_0000;
+        }
+
+        if self.registers.status.frame_interrupt {
+          value |= 0b0100_0000;
+        }
+
+        if self.registers.status.dmc_interrupt {
+          value |= 0b1000_0000;
+        }
+
+        self.registers.status.frame_interrupt = false;
+        value
+      },
       _ => 0
     }
   }
@@ -458,7 +590,9 @@ impl APU {
         self.registers.pulse_1.update_target_period();
       },
       0x4003 => {
-        self.registers.pulse_1.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
+        if self.registers.status.pulse_1_active {
+          self.registers.pulse_1.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
+        }
         self.registers.pulse_1.raw_period = ((self.registers.pulse_1.raw_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8)) as u16;
         self.registers.pulse_1.timer_period = self.registers.pulse_1.raw_period + 1;
         self.registers.pulse_1.envelope_start_flag = true;
@@ -486,7 +620,9 @@ impl APU {
         self.registers.pulse_2.update_target_period();
       },
       0x4007 => {
-        self.registers.pulse_2.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
+        if self.registers.status.pulse_2_active {
+          self.registers.pulse_2.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
+        }
         self.registers.pulse_2.raw_period = ((self.registers.pulse_2.raw_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8)) as u16;
         self.registers.pulse_2.timer_period = self.registers.pulse_2.raw_period + 1;
         self.registers.pulse_2.envelope_start_flag = true;
@@ -502,7 +638,9 @@ impl APU {
         self.registers.triangle.timer_period = (self.registers.triangle.timer_period & 0xFF00) | (value as u16);
       },
       0x400B => {
-        self.registers.triangle.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
+        if self.registers.status.triangle_active {
+          self.registers.triangle.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
+        }
         self.registers.triangle.timer_period = (self.registers.triangle.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16;
         self.registers.triangle.linear_counter_reload_flag = true;
       },
@@ -517,27 +655,32 @@ impl APU {
         self.registers.noise.noise_period = NOISE_PERIOD_SEQUENCE[(value & 0b0000_1111) as usize];
       },
       0x400F => {
-        self.registers.noise.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
+        if self.registers.status.noise_active {
+          self.registers.noise.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
+        }
         self.registers.noise.envelope_start_flag = true;
       },
       // DMC
       0x4010 => {
         self.registers.dmc.irq_enable = value & 0b1000_0000 != 0;
         self.registers.dmc.loop_sample = value & 0b0100_0000 != 0;
-        self.registers.dmc.frequency_index = value & 0b0000_1111;
+        self.registers.dmc.rate = DMC_RATES[(value & 0b0000_1111) as usize];
       },
       0x4011 => {
-        self.registers.dmc.counter = value & 0b0111_1111;
+        self.registers.dmc.output = value & 0b0111_1111;
       },
       0x4012 => {
-        self.registers.dmc.sample_address = value;
+        self.registers.dmc.sample_address = 0xC000 + (value * 64) as u16;
       },
       0x4013 => {
-        self.registers.dmc.sample_length = value;
+        self.registers.dmc.sample_length = (value * 16) as u16 + 1;
       },
       // Status
       0x4015 => {
         self.registers.status.dmc_active = value & 0b0001_0000 != 0;
+        if self.registers.status.dmc_active {
+          self.registers.dmc.reset();
+        }
         self.registers.status.noise_active = value & 0b0000_1000 != 0;
         if !self.registers.status.noise_active {
           self.registers.noise.length_counter = 0;
@@ -554,6 +697,8 @@ impl APU {
         if !self.registers.status.pulse_1_active {
           self.registers.pulse_1.length_counter = 0;
         }
+
+        self.registers.status.dmc_interrupt = false;
       },
       // Frame Counter
       0x4017 => {
@@ -572,7 +717,7 @@ impl APU {
     let pulse2_out = self.registers.pulse_2.get_output(self.registers.status.pulse_2_active);
     let triangle_out = self.registers.triangle.get_output(self.registers.status.triangle_active);
     let noise_out = self.registers.noise.get_output(self.registers.status.noise_active);
-    let dmc_out = 0.0;
+    let dmc_out = self.registers.dmc.output as f32;
 
     let pulse_out = 95.88 / ((8218.0 / (pulse1_out + pulse2_out)) + 100.0);
     let tnd_out = 159.79 / ((1.0 / (triangle_out / 8227.0 + noise_out / 12241.0 + dmc_out / 22638.0)) + 100.0);
