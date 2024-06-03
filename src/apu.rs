@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -38,9 +37,17 @@ pub struct Pulse {
   target_period: u16,
   raw_period: u16,
   muted: bool,
+  channel1: bool,
 }
 
 impl Pulse {
+  pub fn new(channel1: bool) -> Self {
+    Pulse {
+      channel1,
+      ..Default::default()
+    }
+  }
+
   pub fn tick_length_counter(&mut self) {
     if self.length_counter > 0 && !self.length_counter_halt {
       self.length_counter -= 1;
@@ -68,10 +75,10 @@ impl Pulse {
 
   pub fn tick_sweep(&mut self) {
     self.sweep_counter -= 1;
-
-    if self.sweep_counter == 0 && self.sweep_shift_count > 0 && self.sweep_enabled {
-      if !self.muted {
-        self.timer_period = self.target_period;
+    if self.sweep_counter == 0 {
+      if self.sweep_shift_count > 0 && self.sweep_enabled && !self.muted {
+        self.raw_period = self.target_period;
+        self.timer_period = self.raw_period + 1;
         self.update_target_period();
       }
 
@@ -84,7 +91,7 @@ impl Pulse {
     }
 
     // Set mute
-    self.muted = self.raw_period < 8 || self.target_period > 0x07FF;
+    self.muted = self.timer_period < 8 || (!self.sweep_negate && self.target_period > 0x07FF);
   }
 
   pub fn tick_sequencer(&mut self) {
@@ -102,9 +109,12 @@ impl Pulse {
     let change_amount = (self.raw_period >> self.sweep_shift_count) as u16;
 
     if self.sweep_negate {
-      self.target_period = self.raw_period.saturating_sub(change_amount);
+      self.target_period = self.timer_period.saturating_sub(change_amount);
+      if self.channel1 {
+        self.target_period -= 1;
+      }
     } else {
-      self.target_period = self.raw_period.wrapping_add(change_amount);
+      self.target_period = self.timer_period.wrapping_add(change_amount);
     }
   }
 
@@ -300,7 +310,7 @@ pub struct APUFrameCounter {
   irq_inhibit: bool,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct APURegisters {
   pulse_1: Pulse,
   pulse_2: Pulse,
@@ -309,6 +319,20 @@ pub struct APURegisters {
   dmc: DMC,
   status: APUStatus,
   frame_counter: APUFrameCounter,
+}
+
+impl Default for APURegisters {
+  fn default() -> Self {
+    Self {
+      pulse_1: Pulse::new(true),
+      pulse_2: Pulse::new(false),
+      triangle: Triangle::default(),
+      noise: Noise::default(),
+      dmc: DMC::default(),
+      status: APUStatus::default(),
+      frame_counter: APUFrameCounter::default(),
+    }
+  }
 }
 
 pub struct APU {
@@ -332,6 +356,26 @@ impl APU {
     self.bus = Some(bus);
   }
 
+  pub fn tick_quarter_frame(&mut self) {
+    self.registers.pulse_1.tick_envelope();
+    self.registers.pulse_2.tick_envelope();
+    self.registers.noise.tick_envelope();
+    self.registers.triangle.tick_linear_counter();
+  }
+
+  pub fn tick_half_frame(&mut self) {
+    self.registers.pulse_1.tick_envelope();
+    self.registers.pulse_2.tick_envelope();
+    self.registers.noise.tick_envelope();
+    self.registers.pulse_1.tick_sweep();
+    self.registers.pulse_2.tick_sweep();
+    self.registers.pulse_1.tick_length_counter();
+    self.registers.pulse_2.tick_length_counter();
+    self.registers.triangle.tick_linear_counter();
+    self.registers.triangle.tick_length_counter();
+    self.registers.noise.tick_length_counter();
+  }
+
   pub fn step(&mut self, cpu_cycles: u32) {
     let mut reset = false;
 
@@ -348,41 +392,17 @@ impl APU {
 
       match self.total_cycles {
         3729 => {
-          self.registers.pulse_1.tick_envelope();
-          self.registers.pulse_2.tick_envelope();
-          self.registers.noise.tick_envelope();
-          self.registers.triangle.tick_linear_counter();
+          self.tick_quarter_frame();
         }
         7457 => {
-          self.registers.pulse_1.tick_envelope();
-          self.registers.pulse_2.tick_envelope();
-          self.registers.noise.tick_envelope();
-          self.registers.pulse_1.tick_sweep();
-          self.registers.pulse_2.tick_sweep();
-          self.registers.pulse_1.tick_length_counter();
-          self.registers.pulse_2.tick_length_counter();
-          self.registers.triangle.tick_linear_counter();
-          self.registers.triangle.tick_length_counter();
-          self.registers.noise.tick_length_counter();
+          self.tick_half_frame();
         }
         11186 => {
-          self.registers.pulse_1.tick_envelope();
-          self.registers.pulse_2.tick_envelope();
-          self.registers.noise.tick_envelope();
-          self.registers.triangle.tick_linear_counter();
+          self.tick_quarter_frame();
         }
         14915 => {
           if !self.registers.frame_counter.mode {
-            self.registers.pulse_1.tick_envelope();
-            self.registers.pulse_2.tick_envelope();
-            self.registers.noise.tick_envelope();
-            self.registers.pulse_1.tick_sweep();
-            self.registers.pulse_2.tick_sweep();
-            self.registers.pulse_1.tick_length_counter();
-            self.registers.pulse_2.tick_length_counter();
-            self.registers.triangle.tick_linear_counter();
-            self.registers.triangle.tick_length_counter();
-            self.registers.noise.tick_length_counter();
+            self.tick_half_frame();
             reset = true;
             if !self.registers.frame_counter.irq_inhibit {
               self.irq_triggered = true;
@@ -391,15 +411,7 @@ impl APU {
         },
         18641 => {
           if self.registers.frame_counter.mode {
-            self.registers.pulse_1.tick_envelope();
-            self.registers.pulse_2.tick_envelope();
-            self.registers.pulse_1.tick_sweep();
-            self.registers.pulse_2.tick_sweep();
-            self.registers.pulse_1.tick_length_counter();
-            self.registers.pulse_2.tick_length_counter();
-            self.registers.triangle.tick_linear_counter();
-            self.registers.triangle.tick_length_counter();
-            self.registers.noise.tick_length_counter();
+            self.tick_half_frame();
             reset = true;
           }
         }
@@ -429,24 +441,24 @@ impl APU {
       },
       0x4001 => {
         self.registers.pulse_1.sweep_enabled = value & 0b1000_0000 != 0;
-        self.registers.pulse_1.sweep_period = value & 0b0111_0000 >> 4;
+        self.registers.pulse_1.sweep_period = ((value & 0b0111_0000) >> 4) + 1;
         self.registers.pulse_1.sweep_negate = value & 0b0000_1000 != 0;
         self.registers.pulse_1.sweep_shift_count = value & 0b0000_0111;
         self.registers.pulse_1.sweep_reload_flag = true;
         self.registers.pulse_1.update_target_period();
       },
       0x4002 => {
-        self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0xFF00) | (value as u16);
-        self.registers.pulse_1.raw_period = self.registers.pulse_1.timer_period;
+        self.registers.pulse_1.raw_period = (self.registers.pulse_1.raw_period & 0x700) | (value as u16);
+        self.registers.pulse_1.timer_period = self.registers.pulse_1.raw_period + 1;
         self.registers.pulse_1.update_target_period();
       },
       0x4003 => {
         self.registers.pulse_1.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
-        self.registers.pulse_1.timer_period = (self.registers.pulse_1.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16;
-        self.registers.pulse_1.raw_period = self.registers.pulse_1.timer_period;
+        self.registers.pulse_1.raw_period = ((self.registers.pulse_1.raw_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8)) as u16;
+        self.registers.pulse_1.timer_period = self.registers.pulse_1.raw_period + 1;
         self.registers.pulse_1.envelope_start_flag = true;
-        self.registers.pulse_1.update_target_period();
         self.registers.pulse_1.sequencer_cycle = 0;
+        self.registers.pulse_1.update_target_period();
       },
       // Pulse 2
       0x4004 => {
@@ -457,24 +469,24 @@ impl APU {
       },
       0x4005 => {
         self.registers.pulse_2.sweep_enabled = value & 0b1000_0000 != 0;
-        self.registers.pulse_2.sweep_period = value & 0b0111_0000 >> 4;
+        self.registers.pulse_2.sweep_period = ((value & 0b0111_0000) >> 4) + 1;
         self.registers.pulse_2.sweep_negate = value & 0b0000_1000 != 0;
         self.registers.pulse_2.sweep_shift_count = value & 0b0000_0111;
         self.registers.pulse_2.sweep_reload_flag = true;
         self.registers.pulse_2.update_target_period();
       },
       0x4006 => {
-        self.registers.pulse_2.timer_period = (self.registers.pulse_2.timer_period & 0xFF00) | (value as u16);
-        self.registers.pulse_2.raw_period = self.registers.pulse_2.timer_period;
+        self.registers.pulse_2.raw_period = (self.registers.pulse_2.raw_period & 0x700) | (value as u16);
+        self.registers.pulse_2.timer_period = self.registers.pulse_2.raw_period + 1;
         self.registers.pulse_2.update_target_period();
       },
       0x4007 => {
         self.registers.pulse_2.length_counter = LC_LOOKUP[((value & 0b1111_1000) >> 3) as usize];
-        self.registers.pulse_2.timer_period = ((self.registers.pulse_2.timer_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8) as u16);
-        self.registers.pulse_2.raw_period = self.registers.pulse_2.timer_period;
+        self.registers.pulse_2.raw_period = ((self.registers.pulse_2.raw_period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8)) as u16;
+        self.registers.pulse_2.timer_period = self.registers.pulse_2.raw_period + 1;
         self.registers.pulse_2.envelope_start_flag = true;
-        self.registers.pulse_2.update_target_period();
         self.registers.pulse_2.sequencer_cycle = 0;
+        self.registers.pulse_2.update_target_period();
       }
       // Triangle
       0x4008 => {
@@ -530,6 +542,9 @@ impl APU {
       0x4017 => {
         self.registers.frame_counter.mode = value & 0b1000_0000 != 0;
         self.registers.frame_counter.irq_inhibit = value & 0b0100_0000 != 0;
+        if self.registers.frame_counter.mode {
+          self.tick_half_frame();
+        }
       },
       _ => {}
     }
