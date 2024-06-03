@@ -56,7 +56,6 @@ impl Pulse {
 
   pub fn tick_envelope(&mut self) {
     if !self.envelope_start_flag {
-      self.envelope_counter -= 1;
       if self.envelope_counter == 0 {
         self.envelope_counter = self.envelope_volume;
         if self.envelope_decay_level > 0 {
@@ -65,6 +64,8 @@ impl Pulse {
         if self.envelope_decay_level == 0 && self.length_counter_halt {
           self.envelope_decay_level = 15;
         }
+      } else {
+        self.envelope_counter -= 1;
       }
     } else {
       self.envelope_start_flag = false;
