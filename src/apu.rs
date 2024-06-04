@@ -456,11 +456,11 @@ impl APU {
     self.registers.pulse_1.tick_envelope();
     self.registers.pulse_2.tick_envelope();
     self.registers.noise.tick_envelope();
+    self.registers.triangle.tick_linear_counter();
     self.registers.pulse_1.tick_sweep();
     self.registers.pulse_2.tick_sweep();
     self.registers.pulse_1.tick_length_counter();
     self.registers.pulse_2.tick_length_counter();
-    self.registers.triangle.tick_linear_counter();
     self.registers.triangle.tick_length_counter();
     self.registers.noise.tick_length_counter();
   }
@@ -571,7 +571,7 @@ impl APU {
     match address {
       // Pulse 1
       0x4000 => {
-        self.registers.pulse_1.duty_cycle = value & 0b1100_0000 >> 6;
+        self.registers.pulse_1.duty_cycle = (value & 0b1100_0000) >> 6;
         self.registers.pulse_1.length_counter_halt = value & 0b0010_0000 != 0;
         self.registers.pulse_1.constant_flag = value & 0b0001_0000 != 0;
         self.registers.pulse_1.envelope_volume = value & 0b0000_1111;
@@ -704,9 +704,13 @@ impl APU {
       0x4017 => {
         self.registers.frame_counter.mode = value & 0b1000_0000 != 0;
         self.registers.frame_counter.irq_inhibit = value & 0b0100_0000 != 0;
+        if self.registers.frame_counter.irq_inhibit {
+          self.registers.status.frame_interrupt = false;
+        }
         if self.registers.frame_counter.mode {
           self.tick_half_frame();
         }
+        self.total_cycles = 0;
       },
       _ => {}
     }
