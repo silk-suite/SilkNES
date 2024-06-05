@@ -678,8 +678,10 @@ impl APU {
       // Status
       0x4015 => {
         self.registers.status.dmc_active = value & 0b0001_0000 != 0;
-        if self.registers.status.dmc_active {
+        if self.registers.status.dmc_active && self.registers.dmc.bits_remaining == 0 {
           self.registers.dmc.reset();
+        } else {
+          self.registers.dmc.bytes_remaining = 0;
         }
         self.registers.status.noise_active = value & 0b0000_1000 != 0;
         if !self.registers.status.noise_active {
