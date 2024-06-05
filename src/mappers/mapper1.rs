@@ -52,7 +52,7 @@ impl Mapper for Mapper1 {
           },
           (0x8000..=0xBFFF, 2) => {
             // fix first bank at $8000 and switch 16 KB bank at $C000
-            (address % 0x4000) as u32
+            (address & 0x3FFF) as u32
           },
           (0xC000..=0xFFFF, 2) | (0x8000..=0xBFFF, 3) => {
             // fix last bank at $C000 and switch 16 KB bank at $8000
@@ -74,14 +74,14 @@ impl Mapper for Mapper1 {
     match address {
       0x0000..=0x0FFF => {
         if is_8k_mode {
-          (self.registers.chr_bank_0 as u32 * 0x2000) + (address & 0x1FFF) as u32
+          ((self.registers.chr_bank_0 & 0b11110) as u32 * 0x2000) + (address & 0x1FFF) as u32
         } else {
           (self.registers.chr_bank_0 as u32 * 0x1000) + (address & 0x0FFF) as u32
         }
       },
       0x1000..=0x1FFF => {
         if is_8k_mode {
-          (self.registers.chr_bank_0 as u32 * 0x2000) + (address & 0x1FFF) as u32
+          ((self.registers.chr_bank_0 & 0b11110) as u32 * 0x2000) + (address & 0x1FFF) as u32
         } else {
           (self.registers.chr_bank_1 as u32 * 0x1000) + (address & 0x0FFF) as u32
         }
@@ -125,12 +125,12 @@ impl Mapper for Mapper1 {
   }
 
   fn mirroring_mode(&self) -> crate::cartridge::MirroringMode {
-      match (self.registers.control_register & 0b10000) >> 4 {
+      match self.registers.control_register & 0b00011 {
         0 => crate::cartridge::MirroringMode::SingleScreenLow,
         1 => crate::cartridge::MirroringMode::SingleScreenHigh,
         2 => crate::cartridge::MirroringMode::Vertical,
         3 => crate::cartridge::MirroringMode::Horizontal,
-        _ => panic!("Invalid mirroring mode for MMC1: {}", (self.registers.control_register & 0b10000) >> 4),
+        _ => panic!("Invalid mirroring mode for MMC1: {}", self.registers.control_register & 0b00011),
       }
   }
 }
