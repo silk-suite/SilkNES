@@ -43,7 +43,7 @@ impl Cartridge {
         let prg_end: u32 = prg_start + (0x4000 * header_info.prg_rom_size as u32);
         let chr_start: u32 = prg_end;
         let chr_end: u32 = chr_start + (0x2000 * header_info.chr_rom_size as u32);
-        println!("PRG: {:#06X} - {:#06X}, CHR: {:#06X} - {:#06X}", prg_start, prg_end, chr_start, chr_end);
+        println!("PRG: {:#06X} - {:#06X}, CHR: {:#06X} - {:#06X}, Mapper: {}", prg_start, prg_end, chr_start, chr_end, mapper_id);
         let chr_rom = if header_info.chr_rom_size == 0 {
           vec![0; 0x2000]
         } else {
