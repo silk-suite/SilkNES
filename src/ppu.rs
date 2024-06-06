@@ -1,6 +1,7 @@
 use crate::bus::BusLike;
 use crate::cartridge::{Cartridge, MirroringMode};
 
+use std::borrow::BorrowMut;
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -846,6 +847,7 @@ impl PPU {
         self.scanline_count = -1;
         self.frame_complete = true;
       }
+      self.bus.as_ref().unwrap().as_ref().borrow_mut().scanline();
     }
   }
 

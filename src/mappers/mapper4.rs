@@ -23,6 +23,7 @@ pub struct MMC3Registers {
   mirroring_mode: bool,
   irq_latch: u8,
   irq_enabled: bool,
+  irq_active: bool,
   irq_counter: u8,
 }
 
@@ -127,7 +128,7 @@ impl Mapper for Mapper4 {
       }
       (0xE000..=0xFFFF, true) => {
         self.registers.irq_enabled = false;
-        // TODO: Acknowledge IRQ
+        self.registers.irq_active = false;
       }
       (0xE000..=0xFFFF, false) => {
         self.registers.irq_enabled = true;
@@ -142,5 +143,21 @@ impl Mapper for Mapper4 {
     } else {
       MirroringMode::Horizontal
     }
+  }
+
+  fn scanline(&mut self) {
+    if self.registers.irq_counter == 0 {
+      self.registers.irq_counter = self.registers.irq_latch;
+    } else {
+      self.registers.irq_counter -= 1;
+    }
+
+    if self.registers.irq_counter == 0 && self.registers.irq_enabled {
+      self.registers.irq_active = true;
+    }
+  }
+
+  fn irq_state(&self) -> bool {
+    self.registers.irq_active
   }
 }

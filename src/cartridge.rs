@@ -16,7 +16,7 @@ pub struct Cartridge {
   pub mapper_id: u8,
   pub prg_rom: Vec<u8>,
   pub chr_rom: Vec<u8>,
-  mapper: Box<dyn Mapper>,
+  pub mapper: Box<dyn Mapper>,
   pub has_ram: bool,
   pub ram: Vec<u8>,
 }

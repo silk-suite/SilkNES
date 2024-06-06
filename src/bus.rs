@@ -28,6 +28,7 @@ pub trait BusLike {
   fn set_dma_address(&mut self, address: u8);
   fn dma_data(&self) -> u8;
   fn set_dma_data(&mut self, data: u8);
+  fn scanline(&mut self);
 }
 
 pub struct Bus {
@@ -35,7 +36,7 @@ pub struct Bus {
   cpu: Option<Rc<RefCell<NES6502>>>,
   cpu_ram: Vec<u8>,
   ppu: Option<Rc<RefCell<PPU>>>,
-  cartridge: Option<Rc<RefCell<Cartridge>>>,
+  pub cartridge: Option<Rc<RefCell<Cartridge>>>,
   controllers: [u8; 2],
   controllers_state: Rc<RefCell<[u8; 2]>>,
   apu: Option<Rc<RefCell<APU>>>,
@@ -250,6 +251,14 @@ impl BusLike for Bus {
   fn set_dma_data(&mut self, data: u8) {
     self.dma_data = data;
   }
+
+  fn scanline(&mut self) {
+    if let Some(cartridge) = &self.cartridge {
+      cartridge.as_ref().borrow_mut().mapper.scanline();
+    } else {
+      panic!("Cartridge is not connected!");
+    }
+  }
 }
 
 pub struct MockBus {
@@ -326,4 +335,6 @@ impl BusLike for MockBus {
   }
 
   fn set_dma_data(&mut self, _data: u8) {}
+
+  fn scanline(&mut self) {}
 }

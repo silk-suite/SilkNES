@@ -103,7 +103,7 @@ fn main() {
     }
 
     // Create cartridge
-    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/donkeykong.nes")));
+    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/mother.nes")));
     {
         let mut bus_ref = bus.borrow_mut();
         let cartridge_ref = Rc::clone(&cartridge);
@@ -175,6 +175,9 @@ fn main() {
                         } else {
                             cpu.borrow_mut().step();
                             apu.borrow_mut().step(cpu.borrow().total_cycles);
+                            if apu.borrow().registers.status.dmc_interrupt || apu.borrow().registers.status.frame_interrupt || cartridge.borrow().mapper.irq_state() {
+                                cpu.borrow_mut().irq();
+                            }
                         }
                     }
                     let nmi = ppu.borrow().nmi;

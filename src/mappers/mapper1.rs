@@ -133,4 +133,10 @@ impl Mapper for Mapper1 {
         _ => panic!("Invalid mirroring mode for MMC1: {}", self.registers.control_register & 0b00011),
       }
   }
+
+  fn scanline(&mut self) {}
+
+  fn irq_state(&self) -> bool {
+    false
+  }
 }

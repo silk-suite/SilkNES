@@ -38,4 +38,10 @@ impl Mapper for Mapper0 {
   fn mirroring_mode(&self) -> MirroringMode {
     MirroringMode::_Hardwired
   }
+
+  fn scanline(&mut self) {}
+
+  fn irq_state(&self) -> bool {
+    false
+  }
 }
