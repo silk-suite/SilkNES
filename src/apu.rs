@@ -412,7 +412,7 @@ pub struct APU {
   bus: Option<Rc<RefCell<Box<dyn BusLike>>>>,
   pub registers: APURegisters,
   pub total_cycles: u32,
-  pub irq_triggered: bool,
+  pub irq_pending: bool,
 }
 
 impl APU {
@@ -421,7 +421,7 @@ impl APU {
       bus: None,
       registers: APURegisters::default(),
       total_cycles: 0,
-      irq_triggered: false,
+      irq_pending: false,
     }
   }
 
@@ -708,6 +708,7 @@ impl APU {
         self.registers.frame_counter.irq_inhibit = value & 0b0100_0000 != 0;
         if self.registers.frame_counter.irq_inhibit {
           self.registers.status.frame_interrupt = false;
+          self.irq_pending = true;
         }
         if self.registers.frame_counter.mode {
           self.tick_half_frame();
