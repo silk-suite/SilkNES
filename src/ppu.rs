@@ -175,11 +175,11 @@ pub struct PPURegisters {
 
 // endregion: PPU Registers
 
-pub const COLORS: [[u8; 4]; 0x40] = [
-  [98, 98, 98, 255], [0, 31, 178, 255], [36, 4, 200, 255], [82, 0, 178, 255], [115, 0, 118, 255], [128, 0, 36, 255], [115, 11, 0, 255], [82, 40, 0, 255], [36, 68, 0, 255], [0, 87, 0, 255], [0, 92, 0, 255], [0, 83, 36, 255], [0, 60, 118, 255], [0, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255],
-  [171, 171, 171, 255], [13, 87, 255, 255], [75, 48, 255, 255], [138, 19, 255, 255], [188, 8, 214, 255], [210, 18, 105, 255], [199, 46, 0, 255], [157, 84, 0, 255], [96, 123, 0, 255], [32, 152, 0, 255], [0, 163, 0, 255], [0, 153, 66, 255], [0, 125, 180, 255], [0, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255],
-  [255, 255, 255, 255], [83, 174, 255, 255], [144, 133, 255, 255], [211, 101, 255, 255], [255, 87, 255, 255], [255, 93, 207, 255], [255, 119, 87, 255], [255, 158, 0, 255], [189, 199, 0, 255], [122, 231, 0, 255], [67, 246, 17, 255], [38, 239, 126, 255], [44, 213, 246, 255], [78, 78, 78, 255], [0, 0, 0, 255], [0, 0, 0, 255],
-  [255, 255, 255, 255], [182, 225, 255, 255], [206, 209, 255, 255], [233, 195, 255, 255], [255, 188, 255, 255], [255, 189, 244, 255], [255, 198, 195, 255], [255, 213, 154, 255], [233, 230, 129, 255], [206, 244, 129, 255], [182, 251, 154, 255], [169, 250, 195, 255], [169, 240, 244, 255], [184, 184, 184, 255], [0, 0, 0, 255], [0, 0, 0, 255],
+pub const COLORS: [[u8; 3]; 0x40] = [
+  [98, 98, 98], [0, 31, 178], [36, 4, 200], [82, 0, 178], [115, 0, 118], [128, 0, 36], [115, 11, 0], [82, 40, 0], [36, 68, 0], [0, 87, 0], [0, 92, 0], [0, 83, 36], [0, 60, 118], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+  [171, 171, 171], [13, 87, 255], [75, 48, 255], [138, 19, 255], [188, 8, 214], [210, 18, 105], [199, 46, 0], [157, 84, 0], [96, 123, 0], [32, 152, 0], [0, 163, 0], [0, 153, 66], [0, 125, 180], [0, 0, 0], [0, 0, 0], [0, 0, 0],
+  [255, 255, 255], [83, 174, 255], [144, 133, 255], [211, 101, 255], [255, 87, 255], [255, 93, 207], [255, 119, 87], [255, 158, 0], [189, 199, 0], [122, 231, 0], [67, 246, 17], [38, 239, 126], [44, 213, 246], [78, 78, 78], [0, 0, 0], [0, 0, 0],
+  [255, 255, 255], [182, 225, 255], [206, 209, 255], [233, 195, 255], [255, 188, 255], [255, 189, 244], [255, 198, 195], [255, 213, 154], [233, 230, 129], [206, 244, 129], [182, 251, 154], [169, 250, 195], [169, 240, 244], [184, 184, 184], [0, 0, 0], [0, 0, 0],
 ];
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -214,7 +214,7 @@ pub struct OAMSprite {
 pub struct PPU {
   bus: Option<Rc<RefCell<Box<dyn BusLike>>>>,
   cartridge: Option<Rc<RefCell<Cartridge>>>,
-  screen: [[u8; 4]; 256 * 240],
+  screen: [[u8; 3]; 256 * 240],
   pub nametables: [[u8; 0x400]; 2],
   palette: [u8; 32],
   pattern: [[u8; 0x1000]; 2],
@@ -249,7 +249,7 @@ impl PPU {
     Self {
       bus: None,
       cartridge: None,
-      screen: [[0, 0, 0, 255]; 256 * 240],
+      screen: [[0, 0, 0]; 256 * 240],
       nametables: [[0; 0x400]; 2],
       palette: [0; 32],
       pattern: [[0; 0x1000]; 2],
@@ -883,12 +883,41 @@ impl PPU {
     Vec::from(self.palette)
   }
 
-  pub fn get_color_from_palette(&self, palette: u16, pixel: u16) -> [u8; 4] {
+  pub fn get_color_from_palette(&self, palette: u16, pixel: u16) -> [u8; 3] {
     let index = (self.ppu_read(0x3F00 + (palette << 2) + pixel) & 0x3F) as usize;
     COLORS[index]
   }
 
-  pub fn get_screen(&self) -> Vec<[u8; 4]> {
+  pub fn get_screen(&self) -> Vec<[u8; 3]> {
     Vec::from(self.screen)
+  }
+
+  pub fn reset(&mut self) {
+    self.screen.fill([0; 3]);
+    self.nametables.fill([0; 0x400]);
+    self.palette.fill(0);
+    self.pattern.fill([0; 0x1000]);
+    self.cycle_count = 0;
+    self.scanline_count = -1;
+    self.frame_complete = false;
+    self.registers = PPURegisters::default();
+    self.buffered_data = 0;
+    self.nmi = false;
+    self.bg_next_tile_id = 0;
+    self.bg_next_tile_attrib = 0;
+    self.bg_next_tile_lsb = 0;
+    self.bg_next_tile_msb = 0;
+    self.bg_pattern_shift_low = 0;
+    self.bg_pattern_shift_high = 0;
+    self.bg_attrib_shift_low = 0;
+    self.bg_attrib_shift_high = 0;
+    self.oam = [OAMSprite::default(); 64];
+    self.oam_address = 0;
+    self.active_sprites.clear();
+    self.sprite_count = 0;
+    self.sprite_shift_low.fill(0);
+    self.sprite_shift_high.fill(0);
+    self.sprite_zero_hit_possible = false;
+    self.sprite_zero_being_rendered = false;
   }
 }

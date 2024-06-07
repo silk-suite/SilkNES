@@ -18,36 +18,20 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
 
-use pixels::{Pixels, SurfaceTexture};
-use rodio::{source::Source, OutputStream, Sink};
-use winit::{
-    dpi::LogicalSize,
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    keyboard::KeyCode,
-    window::WindowBuilder,
-};
-use winit_input_helper::WinitInputHelper;
+use std::collections::HashMap;
 
-fn main() {
-    let event_loop = EventLoop::new().unwrap();
-    let window = WindowBuilder::new()
-        .with_inner_size(LogicalSize::new(512, 480))
-        .with_title("SilkNES")
-        .build(&event_loop)
-        .unwrap();
-    // let debug_window = WindowBuilder::new()
-    //     .with_inner_size(LogicalSize::new(512, 480))
-    //     .with_title("SilkNES Debug")
-    //     .build(&event_loop)
-    //     .unwrap();
-    let mut input = WinitInputHelper::new();
-    let mut pixels = {
-        let window_size = window.inner_size();
-        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        let initial_width = 256;
-        let initial_height = 240;
-        Pixels::new(initial_width, initial_height, surface_texture).unwrap()
+use eframe::egui;
+use egui::Key;
+use muda::{accelerator::{Accelerator, Code, Modifiers}, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
+use rfd::FileDialog;
+use rodio::{source::Source, OutputStream, Sink};
+use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+fn main() -> Result<(), eframe::Error> {
+    // Set window options, main important one here is min_inner_size so our window accounts for menubar insertion
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([512.0, 480.0]).with_min_inner_size([512.0, 480.0]),
+        ..Default::default()
     };
 
     // Create bus
@@ -102,16 +86,6 @@ fn main() {
         apu_ref.connect_to_bus(Rc::clone(&bus_ref));
     }
 
-    // Create cartridge
-    let cartridge = Rc::new(RefCell::new(Cartridge::from_rom("./roms/mother.nes")));
-    {
-        let mut bus_ref = bus.borrow_mut();
-        let cartridge_ref = Rc::clone(&cartridge);
-        bus_ref.insert_cartridge(Rc::clone(&cartridge_ref));
-    }
-
-    cpu.borrow_mut().reset();
-
     // Setup audio
     let (tx, rx) = mpsc::channel();
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
@@ -119,125 +93,313 @@ fn main() {
     let source = APUOutput::new(rx).amplify(0.25);
     sink.append(source);
 
-    event_loop.set_control_flow(ControlFlow::Poll);
-    
-    let _ = event_loop.run(move |event, elwt| {
-        match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                println!("The close button was pressed; stopping");
-                elwt.exit();
-            },
-            Event::AboutToWait => {
-                // Run the emulation
-                // It would be nice to just eventually step the bus itself,
-                // but the borrow checker is screwing me here so this is fine for now
-                let mut audio_buffer = Vec::new();
-                for _ in 0..(341*262) {
-                    // Grab some variables from the bus to use while stepping
-                    let cycles = bus.borrow().get_global_cycles();
-                    let dma_running = bus.borrow().dma_running();
-                    let mut should_run_dma = false;
+    let silknes = SilkNES {
+        show_about_window: false,
+        menubar: None,
+        menubar_items: HashMap::new(),
+        menubar_interaction: "".to_string(),
+        bus,
+        cpu,
+        ppu,
+        apu,
+        cartridge: None,
+        rom_loaded: false,
+        sink,
+        tx,
+    };
+    eframe::run_native(
+        "SilkNES",
+        options,
+        Box::new(|_cc| Box::<SilkNES>::new(silknes)),
+    )
+}
 
-                    ppu.borrow_mut().step();
-                    if cycles % 3 == 0 {
-                        if bus.borrow().dma_queued() && !dma_running {
-                            if cycles % 2 == 1 {
-                                should_run_dma = true;
-                            }
-                        } else if dma_running {
-                            if cycles % 2 == 0 {
-                                let dma_page = bus.borrow().dma_page() as u16;
-                                let dma_address = bus.borrow().dma_address() as u16;
-                                let dma_data = bus.borrow().cpu_read((dma_page << 8) | dma_address);
-                                bus.borrow_mut().set_dma_data(dma_data);
-                            } else {
-                                let mut dma_address = bus.borrow().dma_address();
-                                let dma_data = bus.borrow().dma_data();
-                                let oam_index = (dma_address / 4) as usize;
-                                match dma_address % 4 {
-                                    0 => ppu.borrow_mut().oam[oam_index].y = dma_data,
-                                    1 => ppu.borrow_mut().oam[oam_index].id = dma_data,
-                                    2 => ppu.borrow_mut().oam[oam_index].attributes.set_from_u8(dma_data),
-                                    3 => ppu.borrow_mut().oam[oam_index].x = dma_data,
-                                    _ => (),
-                                }
-                                dma_address = dma_address.wrapping_add(1);
-                                bus.borrow_mut().set_dma_address(dma_address);
+struct SilkNES {
+    /// Immediate viewports are show immediately, so passing state to/from them is easy.
+    /// The downside is that their painting is linked with the parent viewport:
+    /// if either needs repainting, they are both repainted.
+    show_about_window: bool,
 
-                                if dma_address == 0 {
-                                    bus.borrow_mut().set_dma_running(false);
-                                    bus.borrow_mut().set_dma_queued(false);
-                                }
-                            }
+    menubar: Option<Menu>,
+    menubar_items: HashMap<MenuId, String>,
+    menubar_interaction: String,
+
+    bus: Rc<RefCell<Box<dyn BusLike>>>,
+    cpu: Rc<RefCell<NES6502>>,
+    ppu: Rc<RefCell<PPU>>,
+    apu: Rc<RefCell<APU>>,
+    cartridge: Option<Rc<RefCell<Cartridge>>>,
+    rom_loaded: bool,
+
+    sink: Sink,
+    tx: mpsc::Sender<Vec<f32>>,
+}
+
+impl eframe::App for SilkNES {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui_extras::install_image_loaders(ctx);
+        ctx.request_repaint();
+
+        // Check for interactions on the menubar
+        if let Ok(event) = MenuEvent::receiver().try_recv() {
+            let item_string = self.menubar_items.get(event.id()).unwrap();
+            match item_string.as_str() {
+                "Load ROM" => {
+                    let file = FileDialog::new()
+                        .add_filter("ROMs", &["nes", "fds"])
+                        .set_directory("./roms")
+                        .pick_file();
+                    if let Some(path) = file {
+                        // TODO: Reset properly
+                        let cartridge = Rc::new(RefCell::new(Cartridge::from_rom(path.to_str().unwrap())));
+                        {
+                            let mut bus_ref = self.bus.borrow_mut();
+                            let cartridge_ref = Rc::clone(&cartridge);
+                            bus_ref.insert_cartridge(Rc::clone(&cartridge_ref));
+                        }
+                        self.cartridge = Some(cartridge);
+                        self.rom_loaded = true;
+
+                        self.cpu.borrow_mut().reset();
+                        self.ppu.borrow_mut().reset();
+                    }
+                },
+                "Quit" => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                },
+                "About" => {
+                    self.show_about_window = true;
+                }
+                _ => {}
+            }
+        } else if self.menubar_interaction != "" {
+            // I don't love this but it's conceptually easier than messing around
+            // with the Windows API I'd have to interact with for accelerators
+            match self.menubar_interaction.to_owned().as_str() {
+                "Load ROM" => {
+                    let file = FileDialog::new()
+                        .add_filter("ROMs", &["nes", "fds"])
+                        .set_directory("./roms")
+                        .pick_file();
+                    if let Some(path) = file {
+                        // TODO: Reset properly
+                        let cartridge = Rc::new(RefCell::new(Cartridge::from_rom(path.to_str().unwrap())));
+                        {
+                            let mut bus_ref = self.bus.borrow_mut();
+                            let cartridge_ref = Rc::clone(&cartridge);
+                            bus_ref.insert_cartridge(Rc::clone(&cartridge_ref));
+                        }
+                        self.cartridge = Some(cartridge);
+                        self.rom_loaded = true;
+
+                        self.cpu.borrow_mut().reset();
+                        self.ppu.borrow_mut().reset();
+                    }
+                },
+                _ => {}
+            }
+            self.menubar_interaction = "".to_string();
+        }
+
+        if self.rom_loaded {
+            // Run the emulation
+            // It would be nice to just eventually step the bus itself,
+            // but the borrow checker is screwing me here so this is fine for now
+            let mut audio_buffer = Vec::new();
+            for _ in 0..(341*262) {
+                // Grab some variables from the bus to use while stepping
+                let cycles = self.bus.borrow().get_global_cycles();
+                let dma_running = self.bus.borrow().dma_running();
+                let mut should_run_dma = false;
+
+                self.ppu.borrow_mut().step();
+                if cycles % 3 == 0 {
+                    if self.bus.borrow().dma_queued() && !dma_running {
+                        if cycles % 2 == 1 {
+                            should_run_dma = true;
+                        }
+                    } else if dma_running {
+                        if cycles % 2 == 0 {
+                            let dma_page = self.bus.borrow().dma_page() as u16;
+                            let dma_address = self.bus.borrow().dma_address() as u16;
+                            let dma_data = self.bus.borrow().cpu_read((dma_page << 8) | dma_address);
+                            self.bus.borrow_mut().set_dma_data(dma_data);
                         } else {
-                            cpu.borrow_mut().step();
-                            apu.borrow_mut().step(cpu.borrow().total_cycles);
-                            if apu.borrow().registers.status.dmc_interrupt || apu.borrow().registers.status.frame_interrupt || cartridge.borrow().mapper.irq_state() {
-                                cpu.borrow_mut().irq();
+                            let mut dma_address = self.bus.borrow().dma_address();
+                            let dma_data = self.bus.borrow().dma_data();
+                            let oam_index = (dma_address / 4) as usize;
+                            match dma_address % 4 {
+                                0 => self.ppu.borrow_mut().oam[oam_index].y = dma_data,
+                                1 => self.ppu.borrow_mut().oam[oam_index].id = dma_data,
+                                2 => self.ppu.borrow_mut().oam[oam_index].attributes.set_from_u8(dma_data),
+                                3 => self.ppu.borrow_mut().oam[oam_index].x = dma_data,
+                                _ => (),
+                            }
+                            dma_address = dma_address.wrapping_add(1);
+                            self.bus.borrow_mut().set_dma_address(dma_address);
+
+                            if dma_address == 0 {
+                                self.bus.borrow_mut().set_dma_running(false);
+                                self.bus.borrow_mut().set_dma_queued(false);
                             }
                         }
-                    }
-                    let nmi = ppu.borrow().nmi;
-                    if nmi {
-                        ppu.borrow_mut().nmi = false;
-                        cpu.borrow_mut().nmi();
-                    }
-                    bus.borrow_mut().set_global_cycles(cycles + 1);
-                    if should_run_dma {
-                        bus.borrow_mut().set_dma_running(true);
-                    }
-                    if bus.borrow().get_global_cycles() % 112 == 0 {
-                        audio_buffer.push(apu.borrow_mut().get_output());
+                    } else {
+                        self.cpu.borrow_mut().step();
+                        self.apu.borrow_mut().step(self.cpu.borrow().total_cycles);
+                        if self.apu.borrow().registers.status.dmc_interrupt || self.apu.borrow().registers.status.frame_interrupt || self.cartridge.as_ref().unwrap().borrow().mapper.irq_state() {
+                            self.cpu.borrow_mut().irq();
+                        }
                     }
                 }
-
-                // Update audio
-                //println!("Audio buffer: {:?}", audio_buffer);
-                tx.send(audio_buffer).unwrap();
-
-                // Draw to screen
-                let display = ppu.borrow().get_screen();
-                let frame = pixels.frame_mut();
-
-                for (pixel, &value) in frame.chunks_mut(4).zip(display.iter()) {
-                    pixel.copy_from_slice(&value);
+                let nmi = self.ppu.borrow().nmi;
+                if nmi {
+                    self.ppu.borrow_mut().nmi = false;
+                    self.cpu.borrow_mut().nmi();
                 }
-
-                if let Err(err) = pixels.render() {
-                    println!("pixels.render() failed: {}", err);
-                    elwt.exit();
+                self.bus.borrow_mut().set_global_cycles(cycles + 1);
+                if should_run_dma {
+                    self.bus.borrow_mut().set_dma_running(true);
                 }
-            },
-            _ => ()
-        }
-
-        if input.update(&event) {
-            // Close events
-            if input.key_pressed(KeyCode::Escape) || input.close_requested() {
-                elwt.exit();
-            }
-
-            let mut controller_state = 0x00;
-
-            for (key, value) in [
-                (KeyCode::ArrowRight, 0x01), // D-Pad Right
-                (KeyCode::ArrowLeft, 0x02), // D-Pad Left
-                (KeyCode::ArrowDown, 0x04), // D-Pad Down
-                (KeyCode::ArrowUp, 0x08), // D-Pad Up
-                (KeyCode::Enter, 0x10), // Start
-                (KeyCode::Space, 0x20), // Select
-                (KeyCode::KeyZ, 0x40), // B
-                (KeyCode::KeyX, 0x80), // A
-            ] {
-                if input.key_held(key) {
-                    controller_state |= value;
+                if self.bus.borrow().get_global_cycles() % 112 == 0 {
+                    audio_buffer.push(self.apu.borrow_mut().get_output());
                 }
             }
 
-            bus.borrow_mut().update_controller(0, controller_state);
+            // Update audio
+            //println!("Audio buffer: {:?}", audio_buffer);
+            self.tx.send(audio_buffer).unwrap();
         }
-    });
+
+        // Render the display to a texture for egui
+        let display = self.ppu.borrow().get_screen();
+        let pixels = display
+            .iter()
+            .map(|b| [b[0], b[1], b[2]])
+            .flatten()
+            .collect::<Vec<u8>>();
+        let color_image = egui::ColorImage::from_rgb([256, 240], &pixels);
+        let handle = ctx.load_texture("Display", color_image, egui::TextureOptions::NEAREST);
+
+        // Draw main window
+        egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
+            if self.menubar.is_none() {
+                let handle = _frame.window_handle().unwrap().as_raw();
+                let hwnd = match handle {
+                    RawWindowHandle::Win32(handle) => handle.hwnd.get(),
+                    _ => panic!("Cannot handle other platform window handles yet!"),
+                };
+                let (menubar, menubar_items) = create_menubar();
+                menubar.init_for_hwnd(hwnd).unwrap();
+                self.menubar = Some(menubar);
+                self.menubar_items = menubar_items;
+            }
+
+            let sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(512.0, 480.0));
+            let image = egui::Image::from_texture(sized_image);
+            ui.add(image);
+        });
+
+        // Draw about window, if activve
+        if self.show_about_window {
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("about_window"),
+                egui::ViewportBuilder::default()
+                    .with_title("About")
+                    .with_inner_size([256.0, 128.0]),
+                |ctx, class| {
+                    assert!(
+                        class == egui::ViewportClass::Immediate,
+                        "This egui backend doesn't support multiple viewports"
+                    );
+
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label("Created by Daniel Adams");
+                        })
+                    });
+
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        // Tell parent viewport that we should not show next frame:
+                        self.show_about_window = false;
+                    }
+                },
+            );
+        }
+
+        // Handle input
+        let mut controller_state = 0x00;
+
+        for (key, value) in [
+            (Key::ArrowRight, 0x01), // D-Pad Right
+            (Key::ArrowLeft, 0x02), // D-Pad Left
+            (Key::ArrowDown, 0x04), // D-Pad Down
+            (Key::ArrowUp, 0x08), // D-Pad Up
+            (Key::Enter, 0x10), // Start
+            (Key::Space, 0x20), // Select
+            (Key::Z, 0x40), // B
+            (Key::X, 0x80), // A
+        ] {
+            if ctx.input(|i| i.key_down(key)) {
+                controller_state |= value;
+            }
+
+            self.bus.borrow_mut().update_controller(0, controller_state);
+
+            if ctx.input(|i| i.modifiers.ctrl) && ctx.input(|i| i.key_pressed(Key::O)) {
+                self.menubar_interaction = "Load ROM".to_string();
+            }
+        }
+
+        if ctx.input(|i| i.modifiers.ctrl) && ctx.input(|i| i.key_pressed(Key::O)) {
+            self.menubar_interaction = "Load ROM".to_string();
+        }
+    }
+}
+
+fn create_menubar() -> (Menu, HashMap<MenuId, String>) {
+    let menu = Menu::new();
+
+    // File Tab
+    let load_rom = MenuItem::new(
+        "Load ROM",
+        true,
+        Some(Accelerator::new(Some(Modifiers::CONTROL), Code::KeyO)),
+    );
+    let quit = MenuItem::new(
+        "Quit",
+        true,
+        None,
+    );
+    let file_tab = Submenu::with_items(
+        "File",
+        true,
+        &[
+            &load_rom,
+            &PredefinedMenuItem::separator(),
+            &quit,
+        ],
+    ).unwrap();
+    menu.append(&file_tab).unwrap();
+
+    // Help Tab
+    let about = MenuItem::new(
+        "About",
+        true,
+        None,
+    );
+    let help_tab = Submenu::with_items(
+        "Help",
+        true,
+        &[
+            &about,
+        ],
+    ).unwrap();
+    menu.append(&help_tab).unwrap();
+
+    let mut menu_ids = HashMap::new();
+    menu_ids.insert(load_rom.id().clone(), "Load ROM".to_string());
+    menu_ids.insert(quit.id().clone(), "Quit".to_string());
+    menu_ids.insert(about.id().clone(), "About".to_string());
+
+    (menu, menu_ids)
 }
