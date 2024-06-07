@@ -1203,11 +1203,11 @@ impl NES6502 {
       self.write(0x0100 + self.sp as u16, (self.pc & 0x00FF) as u8);
       self.sp -= 1;
 
-      self.flags.break_command = false;
-      self.flags.interrupt_disable = true;
-
       self.write(0x0100 + self.sp as u16, self.flags.to_u8());
       self.sp -= 1;
+
+      self.flags.break_command = false;
+      self.flags.interrupt_disable = true;
 
       self.current_address_abs = 0xFFFE;
       let low = self.read(self.current_address_abs) as u16;
