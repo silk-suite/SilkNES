@@ -104,7 +104,6 @@ fn main() -> Result<(), eframe::Error> {
         apu,
         cartridge: None,
         rom_loaded: false,
-        sink,
         tx,
     };
     eframe::run_native(
@@ -131,7 +130,6 @@ struct SilkNES {
     cartridge: Option<Rc<RefCell<Cartridge>>>,
     rom_loaded: bool,
 
-    sink: Sink,
     tx: mpsc::Sender<Vec<f32>>,
 }
 
@@ -273,8 +271,7 @@ impl eframe::App for SilkNES {
         // Render the display to a texture for egui
         let display = self.ppu.borrow().get_screen();
         let pixels = display
-            .iter()
-            .map(|b| [b[0], b[1], b[2]])
+            .into_iter()
             .flatten()
             .collect::<Vec<u8>>();
         let color_image = egui::ColorImage::from_rgb([256, 240], &pixels);
