@@ -10,6 +10,7 @@ use rodio::source::Source;
 pub struct APUOutput {
   apu_messenger: Receiver<Vec<f32>>,
   buffer: VecDeque<f32>,
+  last_value: f32,
 }
 
 impl APUOutput {
@@ -19,6 +20,7 @@ impl APUOutput {
     APUOutput {
       apu_messenger,
       buffer: vec![].into(),
+      last_value: 0.0,
     }
   }
 }
@@ -35,7 +37,8 @@ impl Iterator for APUOutput {
       Err(_) => {},
     }
 
-    let value = self.buffer.pop_front().unwrap_or(0.0);
+    let value = self.buffer.pop_front().unwrap_or(self.last_value);
+    self.last_value = value;
     Some(value)
   }
 }
