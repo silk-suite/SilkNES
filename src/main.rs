@@ -258,14 +258,16 @@ impl eframe::App for SilkNES {
                 if should_run_dma {
                     self.bus.borrow_mut().set_dma_running(true);
                 }
-                if self.bus.borrow().get_global_cycles() % 112 == 0 {
-                    audio_buffer.push(self.apu.borrow_mut().get_output());
-                }
+                audio_buffer.push(self.apu.borrow_mut().get_output());
             }
 
             // Update audio
-            //println!("Audio buffer: {:?}", audio_buffer);
-            self.tx.send(audio_buffer).unwrap();
+            let averaged = audio_buffer
+                .chunks(112)
+                .map(|x| x.iter().sum::<f32>() / x.len() as f32)
+                .collect::<Vec<f32>>();
+            self.tx.send(averaged).unwrap();
+            audio_buffer.clear();
         }
 
         // Render the display to a texture for egui
