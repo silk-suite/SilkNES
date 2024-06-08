@@ -160,6 +160,10 @@ impl eframe::App for SilkNES {
 
                         self.cpu.borrow_mut().reset();
                         self.ppu.borrow_mut().reset();
+
+                        let filename = path.file_name().unwrap().to_str().unwrap().to_string();
+                        let title_string = "SilkNES | ".to_string() + &filename;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title_string));
                     }
                 },
                 "Quit" => {
@@ -192,6 +196,10 @@ impl eframe::App for SilkNES {
 
                         self.cpu.borrow_mut().reset();
                         self.ppu.borrow_mut().reset();
+
+                        let filename = path.file_name().unwrap().to_str().unwrap().to_string();
+                        let title_string = "SilkNES | ".to_string() + &filename;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title_string));
                     }
                 },
                 _ => {}
