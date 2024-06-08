@@ -22,8 +22,6 @@ use std::sync::{
     Mutex
 };
 
-//use tokio::sync::mpsc;
-
 use eframe::egui;
 use egui::Key;
 use rodio::{source::Source, OutputStream, Sink};
@@ -37,8 +35,9 @@ lazy_static! {
     static ref ROM_CHANGED: AtomicBool = AtomicBool::new(false);
     static ref ROM_BYTES: Mutex<Vec<u8>> = Mutex::new(vec![]);
     static ref CONTROLLER_STATE: Mutex<u8> = Mutex::new(0);
-  }
+}
 
+#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 fn main() {
     // Redirect `log` message to `console.log` and friends:
