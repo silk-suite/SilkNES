@@ -25,6 +25,8 @@ use egui::Key;
 use muda::{accelerator::{Accelerator, Code, Modifiers}, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use rfd::FileDialog;
 use rodio::{source::Source, OutputStream, Sink};
+use roxmltree::Document;
+use sha256::digest;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 fn main() -> Result<(), eframe::Error> {
@@ -148,8 +150,8 @@ impl eframe::App for SilkNES {
                         .set_directory("./roms")
                         .pick_file();
                     if let Some(path) = file {
-                        // TODO: Reset properly
-                        let cartridge = Rc::new(RefCell::new(Cartridge::from_rom(path.to_str().unwrap())));
+                        let rom_bytes = std::fs::read(path.clone()).unwrap();
+                        let cartridge = Rc::new(RefCell::new(Cartridge::from_bytes(rom_bytes.clone())));
                         {
                             let mut bus_ref = self.bus.borrow_mut();
                             let cartridge_ref = Rc::clone(&cartridge);
@@ -161,8 +163,15 @@ impl eframe::App for SilkNES {
                         self.cpu.borrow_mut().reset();
                         self.ppu.borrow_mut().reset();
 
-                        let filename = path.file_name().unwrap().to_str().unwrap().to_string();
-                        let title_string = "SilkNES | ".to_string() + &filename;
+                        let mut title_string = "SilkNES | ".to_string();
+                        let sha256 = digest(rom_bytes);
+                        let rom_name = check_dat_file(&sha256);
+                        if let Some(name) = rom_name {
+                            title_string += &name;
+                        } else {
+                            let filename = path.file_name().unwrap().to_str().unwrap().to_string();
+                            title_string += &filename;
+                        }
                         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title_string));
                     }
                 },
@@ -184,8 +193,8 @@ impl eframe::App for SilkNES {
                         .set_directory("./roms")
                         .pick_file();
                     if let Some(path) = file {
-                        // TODO: Reset properly
-                        let cartridge = Rc::new(RefCell::new(Cartridge::from_rom(path.to_str().unwrap())));
+                        let rom_bytes = std::fs::read(path.clone()).unwrap();
+                        let cartridge = Rc::new(RefCell::new(Cartridge::from_bytes(rom_bytes.clone())));
                         {
                             let mut bus_ref = self.bus.borrow_mut();
                             let cartridge_ref = Rc::clone(&cartridge);
@@ -197,9 +206,15 @@ impl eframe::App for SilkNES {
                         self.cpu.borrow_mut().reset();
                         self.ppu.borrow_mut().reset();
 
-                        let filename = path.file_name().unwrap().to_str().unwrap().to_string();
-                        let title_string = "SilkNES | ".to_string() + &filename;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title_string));
+                        let mut title_string = "SilkNES | ".to_string();
+                        let sha256 = digest(rom_bytes);
+                        let rom_name = check_dat_file(&sha256);
+                        if let Some(name) = rom_name {
+                            title_string += &name;
+                        } else {
+                            let filename = path.file_name().unwrap().to_str().unwrap().to_string();
+                            title_string += &filename;
+                        }
                     }
                 },
                 _ => {}
@@ -409,4 +424,16 @@ fn create_menubar() -> (Menu, HashMap<MenuId, String>) {
     menu_ids.insert(about.id().clone(), "About".to_string());
 
     (menu, menu_ids)
+}
+
+fn check_dat_file(hash: &str) -> Option<String> {
+    let dat_file = std::fs::read("res/Nintendo - Nintendo Entertainment System (Headered) (20240606-224704).dat").unwrap();
+    let dat_file_string = String::from_utf8(dat_file).unwrap();
+    let dat = Document::parse(&dat_file_string).unwrap();
+    let elem = dat.descendants().find(|n| n.attribute("sha256") == Some(hash));
+    if let Some(elem) = elem {
+        Some(elem.attribute("name").unwrap().to_string())
+    } else {
+        None
+    }
 }
