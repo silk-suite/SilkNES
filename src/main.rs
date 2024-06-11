@@ -295,11 +295,7 @@ impl eframe::App for SilkNES {
 
         // Render the display to a texture for egui
         let display = self.ppu.borrow().get_screen();
-        let pixels = display
-            .into_iter()
-            .flatten()
-            .collect::<Vec<u8>>();
-        let color_image = egui::ColorImage::from_rgb([256, 240], &pixels);
+        let color_image = egui::ColorImage::from_rgb([256, 240], &display);
         let handle = ctx.load_texture("Display", color_image, egui::TextureOptions::NEAREST);
 
         // Draw main window

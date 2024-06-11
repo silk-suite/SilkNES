@@ -214,7 +214,7 @@ pub struct OAMSprite {
 pub struct PPU {
   bus: Option<Rc<RefCell<Box<dyn BusLike>>>>,
   cartridge: Option<Rc<RefCell<Cartridge>>>,
-  screen: [[u8; 3]; 256 * 240],
+  screen: [u8; 256 * 240 * 3],
   pub nametables: [[u8; 0x400]; 2],
   palette: [u8; 32],
   pattern: [[u8; 0x1000]; 2],
@@ -249,7 +249,7 @@ impl PPU {
     Self {
       bus: None,
       cartridge: None,
-      screen: [[0, 0, 0]; 256 * 240],
+      screen: [0; 256 * 240 * 3],
       nametables: [[0; 0x400]; 2],
       palette: [0; 32],
       pattern: [[0; 0x1000]; 2],
@@ -833,9 +833,12 @@ impl PPU {
     }
 
     if self.scanline_count < 240 && self.cycle_count < 256 {
-      let index = self.scanline_count as usize * 256 + (self.cycle_count as usize - 1);
+      let index = (self.scanline_count as usize).wrapping_mul(256) + (self.cycle_count.saturating_sub(1) as usize);
       if index < self.screen.len() {
-        self.screen[index] = self.get_color_from_palette(pal.into(), pixel.into());
+        let palette_index = (self.ppu_read(0x3F00 + (pal as u16 * 4) + pixel as u16) & 0x3F) as usize;
+        self.screen[index * 3] = COLORS[palette_index][0];
+        self.screen[index * 3 + 1] = COLORS[palette_index][1];
+        self.screen[index * 3 + 2] = COLORS[palette_index][2];
       }
     }
 
@@ -883,17 +886,12 @@ impl PPU {
     Vec::from(self.palette)
   }
 
-  pub fn get_color_from_palette(&self, palette: u16, pixel: u16) -> [u8; 3] {
-    let index = (self.ppu_read(0x3F00 + (palette << 2) + pixel) & 0x3F) as usize;
-    COLORS[index]
-  }
-
-  pub fn get_screen(&self) -> Vec<[u8; 3]> {
+  pub fn get_screen(&self) -> Vec<u8> {
     Vec::from(self.screen)
   }
 
   pub fn reset(&mut self) {
-    self.screen.fill([0; 3]);
+    self.screen.fill(0);
     self.nametables.fill([0; 0x400]);
     self.palette.fill(0);
     self.pattern.fill([0; 0x1000]);

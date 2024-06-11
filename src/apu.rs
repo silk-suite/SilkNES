@@ -75,7 +75,7 @@ impl Pulse {
   }
 
   pub fn tick_sweep(&mut self) {
-    self.sweep_counter -= 1;
+    self.sweep_counter = self.sweep_counter.saturating_sub(1);
     if self.sweep_counter == 0 {
       if self.sweep_shift_count > 0 && self.sweep_enabled && !self.muted {
         self.raw_period = self.target_period;
@@ -230,7 +230,7 @@ impl Noise {
       self.shift_register = (self.shift_register & 0x3FFF) | (feedback << 14);
       self.shift_register_timer = self.noise_period;
     }
-    self.shift_register_timer -= 1;
+    self.shift_register_timer = self.shift_register_timer.saturating_sub(1);
   }
 
   pub fn tick_length_counter(&mut self) {
@@ -241,7 +241,7 @@ impl Noise {
 
   pub fn tick_envelope(&mut self) {
     if !self.envelope_start_flag {
-      self.envelope_counter -= 1;
+      self.envelope_counter = self.envelope_counter.saturating_sub(1);
       if self.envelope_counter == 0 {
         self.envelope_counter = self.envelope_volume;
         if self.envelope_decay_level > 0 {
@@ -318,7 +318,7 @@ impl DMC {
   }
 
   pub fn tick_output_unit(&mut self) {
-    self.output_unit_timer -= 1;
+    self.output_unit_timer = self.output_unit_timer.saturating_sub(1);
     if self.output_unit_timer == 0 {
       if !self.silence_flag {
         if self.shift_register & 0x1 != 0 && self.output <= 125 {
@@ -328,7 +328,7 @@ impl DMC {
         }
       }
       self.shift_register >>= 1;
-      self.bits_remaining -= 1;
+      self.bits_remaining = self.bits_remaining.saturating_sub(1);
       if self.bits_remaining == 0 {
         self.bits_remaining = 8;
         if self.sample_buffer == 0 {
