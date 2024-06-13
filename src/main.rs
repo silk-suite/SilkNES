@@ -226,7 +226,6 @@ impl eframe::App for SilkNES {
             // Run the emulation
             // It would be nice to just eventually step the bus itself,
             // but the borrow checker is screwing me here so this is fine for now
-            let mut audio_buffer = Vec::new();
             for _ in 0..(341*262) {
                 // Grab some variables from the bus to use while stepping
                 let cycles = self.bus.borrow().get_global_cycles();
@@ -241,19 +240,24 @@ impl eframe::App for SilkNES {
                         }
                     } else if dma_running {
                         if cycles % 2 == 0 {
-                            let dma_page = self.bus.borrow().dma_page() as u16;
-                            let dma_address = self.bus.borrow().dma_address() as u16;
-                            let dma_data = self.bus.borrow().cpu_read((dma_page << 8) | dma_address);
+                            let dma_data = {
+                                let bus = self.bus.borrow();
+                                let dma_page = bus.dma_page() as u16;
+                                let dma_address = bus.dma_address() as u16;
+                                let dma_data = bus.cpu_read((dma_page << 8) | dma_address);
+                                dma_data
+                            };
                             self.bus.borrow_mut().set_dma_data(dma_data);
                         } else {
                             let mut dma_address = self.bus.borrow().dma_address();
                             let dma_data = self.bus.borrow().dma_data();
                             let oam_index = (dma_address / 4) as usize;
+                            let mut ppu = self.ppu.borrow_mut();
                             match dma_address % 4 {
-                                0 => self.ppu.borrow_mut().oam[oam_index].y = dma_data,
-                                1 => self.ppu.borrow_mut().oam[oam_index].id = dma_data,
-                                2 => self.ppu.borrow_mut().oam[oam_index].attributes.set_from_u8(dma_data),
-                                3 => self.ppu.borrow_mut().oam[oam_index].x = dma_data,
+                                0 => ppu.oam[oam_index].y = dma_data,
+                                1 => ppu.oam[oam_index].id = dma_data,
+                                2 => ppu.oam[oam_index].attributes.set_from_u8(dma_data),
+                                3 => ppu.oam[oam_index].x = dma_data,
                                 _ => (),
                             }
                             dma_address = dma_address.wrapping_add(1);
@@ -281,16 +285,19 @@ impl eframe::App for SilkNES {
                 if should_run_dma {
                     self.bus.borrow_mut().set_dma_running(true);
                 }
-                audio_buffer.push(self.apu.borrow_mut().get_output());
+                self.apu.borrow_mut().update_output();
             }
 
             // Update audio
-            let averaged = audio_buffer
+            let buffer = std::mem::take(&mut self.apu.borrow_mut().output_buffer);
+            let averaged = buffer
                 .chunks(112)
-                .map(|x| x.iter().sum::<f32>() / x.len() as f32)
-                .collect::<Vec<f32>>();
+                .fold(Vec::new(), |mut acc, x| {
+                    let sum: f32 = x.iter().sum();
+                    acc.push(sum / x.len() as f32);
+                    acc
+                });
             self.tx.send(averaged).unwrap();
-            audio_buffer.clear();
         }
 
         // Render the display to a texture for egui

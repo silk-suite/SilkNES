@@ -413,6 +413,7 @@ pub struct APU {
   pub registers: APURegisters,
   pub total_cycles: u32,
   pub irq_pending: bool,
+  pub output_buffer: Vec<f32>,
 }
 
 impl APU {
@@ -422,6 +423,7 @@ impl APU {
       registers: APURegisters::default(),
       total_cycles: 0,
       irq_pending: false,
+      output_buffer: Vec::new(),
     }
   }
 
@@ -719,15 +721,24 @@ impl APU {
     }
   }
 
-  pub fn get_output(&mut self) -> f32 {
+  pub fn update_output(&mut self) {
+    // Update output
     let pulse1_out = self.registers.pulse_1.get_output(self.registers.status.pulse_1_active);
     let pulse2_out = self.registers.pulse_2.get_output(self.registers.status.pulse_2_active);
     let triangle_out = self.registers.triangle.get_output(self.registers.status.triangle_active);
     let noise_out = self.registers.noise.get_output(self.registers.status.noise_active);
     let dmc_out = self.registers.dmc.output as f32;
 
-    let pulse_out = 95.88 / ((8218.0 / (pulse1_out + pulse2_out)) + 100.0);
-    let tnd_out = 159.79 / ((1.0 / (triangle_out / 8227.0 + noise_out / 12241.0 + dmc_out / 22638.0)) + 100.0);
-    2.0 * (pulse_out + tnd_out) - 1.0
+    // // Accurate
+    // let pulse_out = 95.88 / ((8218.0 / (pulse1_out + pulse2_out)) + 100.0);
+    // let tnd_out = 159.79 / ((1.0 / (triangle_out / 8227.0 + noise_out / 12241.0 + dmc_out / 22638.0)) + 100.0);
+    // let output = 2.0 * (pulse_out + tnd_out) - 1.0;
+
+    // Linear Approximate
+    let pulse_out = 0.00752 * (pulse1_out + pulse2_out);
+    let tnd_out = 0.00851 * triangle_out + 0.00494 * noise_out + 0.00335 * dmc_out;
+    let output = 2.0 * (pulse_out + tnd_out) - 1.0;
+
+    self.output_buffer.push(output);
   }
 }

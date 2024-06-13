@@ -80,12 +80,12 @@ impl Cartridge {
     }
   }
 
-  pub fn ppu_read(&self, address: u16) -> u8 {
+  pub fn ppu_read(&self, address: u16) -> &u8 {
     let mapped_address = self.mapper.get_mapped_address_ppu(address) as usize;
     if (mapped_address) < self.chr_rom.len() {
-      self.chr_rom[mapped_address]
+      &self.chr_rom[mapped_address]
     } else {
-      0
+      &0
     }
   }
 

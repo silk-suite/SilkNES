@@ -242,6 +242,9 @@ pub struct PPU {
   sprite_shift_high: [u8; 8],
   sprite_zero_hit_possible: bool,
   sprite_zero_being_rendered: bool,
+  // Misc
+  current_palette: u8,
+  current_value: u8,
 }
 
 impl PPU {
@@ -269,12 +272,14 @@ impl PPU {
       bg_attrib_shift_high: 0,
       oam: [OAMSprite::default(); 64],
       oam_address: 0,
-      active_sprites: Vec::new(),
+      active_sprites: Vec::<OAMSprite>::with_capacity(8),
       sprite_count: 0,
       sprite_shift_low: [0; 8],
       sprite_shift_high: [0; 8],
       sprite_zero_hit_possible: false,
       sprite_zero_being_rendered: false,
+      current_palette: 0,
+      current_value: 0,
     }
   }
 
@@ -314,7 +319,7 @@ impl PPU {
       0x0006 => 0, // ADDR (not readable)
       0x0007 => { // DATA
         let mut data = self.buffered_data;
-        self.buffered_data = self.ppu_read(self.registers.internal.v.address);
+        self.buffered_data = *self.ppu_read(self.registers.internal.v.address);
 
         // Reads from palette memory are not buffered
         if self.registers.internal.v.address >= 0x3F00 {
@@ -389,47 +394,53 @@ impl PPU {
   }
 
   // PPU is reading from PPU bus
-  pub fn ppu_read(&self, address: u16) -> u8 {
+  pub fn ppu_read(&mut self, address: u16) -> &u8 {
     let mut masked = address & 0x3FFF;
-    let cartridge = if let Some(cartridge) = &self.cartridge {
-      cartridge.borrow()
-    } else {
-      panic!("Cartridge is not attached to PPU!");
-    };
     if masked <= 0x1FFF {
-      if cartridge.header_info.chr_rom_size > 0 {
-        cartridge.ppu_read(address)
+      let cartridge = if let Some(cartridge) = &self.cartridge {
+        cartridge.borrow()
       } else {
-        self.pattern[((address & 0x1000) >> 12) as usize][(address & 0x0FFF) as usize]
+        panic!("Cartridge is not attached to PPU!");
+      };
+      if cartridge.header_info.chr_rom_size > 0 {
+        self.current_value = cartridge.ppu_read(address).to_owned();
+        &self.current_value
+      } else {
+        &self.pattern[((address & 0x1000) >> 12) as usize][(address & 0x0FFF) as usize]
       }
     } else if masked >= 0x2000 && masked <= 0x3EFF {
       //println!("PPU READ from address {:#04X} at scanline {} cycle {}", masked, self.scanline_count, self.cycle_count);
       // Nametables
       masked = address & 0x0FFF;
+      let cartridge = if let Some(cartridge) = &self.cartridge {
+        cartridge.borrow()
+      } else {
+        panic!("Cartridge is not attached to PPU!");
+      };
       match cartridge.get_nametable_layout() {
         MirroringMode::Vertical => {
           match masked {
-            0x0000..=0x03FF => self.nametables[0][(masked & 0x03FF) as usize],
-            0x0400..=0x07FF => self.nametables[1][(masked & 0x03FF) as usize],
-            0x0800..=0x0BFF => self.nametables[0][(masked & 0x03FF) as usize],
-            0x0C00..=0x0FFF => self.nametables[1][(masked & 0x03FF) as usize],
+            0x0000..=0x03FF => &self.nametables[0][(masked & 0x03FF) as usize],
+            0x0400..=0x07FF => &self.nametables[1][(masked & 0x03FF) as usize],
+            0x0800..=0x0BFF => &self.nametables[0][(masked & 0x03FF) as usize],
+            0x0C00..=0x0FFF => &self.nametables[1][(masked & 0x03FF) as usize],
             _ => panic!("Invalid address for PPU read: {:#04X}", masked),
           }
         },
         MirroringMode::Horizontal => {
           match masked {
-            0x0000..=0x03FF => self.nametables[0][(address & 0x03FF) as usize],
-            0x0400..=0x07FF => self.nametables[0][(address & 0x03FF) as usize],
-            0x0800..=0x0BFF => self.nametables[1][(address & 0x03FF) as usize],
-            0x0C00..=0x0FFF => self.nametables[1][(address & 0x03FF) as usize],
+            0x0000..=0x03FF => &self.nametables[0][(address & 0x03FF) as usize],
+            0x0400..=0x07FF => &self.nametables[0][(address & 0x03FF) as usize],
+            0x0800..=0x0BFF => &self.nametables[1][(address & 0x03FF) as usize],
+            0x0C00..=0x0FFF => &self.nametables[1][(address & 0x03FF) as usize],
             _ => panic!("Invalid address for PPU read: {:#04X}", address),
           }
         },
         MirroringMode::SingleScreenLow => {
-          self.nametables[0][(address & 0x03FF) as usize]
+          &self.nametables[0][(address & 0x03FF) as usize]
         },
         MirroringMode::SingleScreenHigh => {
-          self.nametables[1][(address & 0x03FF) as usize]
+          &self.nametables[1][(address & 0x03FF) as usize]
         },
         _ => panic!("Invalid mirroring mode for PPU read: {:?}", cartridge.get_nametable_layout()),
       }
@@ -441,7 +452,8 @@ impl PPU {
         0x001C => self.palette[0x000C as usize],
         _ => (address & 0x001F) as u8,
       };
-      self.palette[pallete_address as usize] & if self.registers.mask.greyscale { 0x30 } else { 0x3F }
+      self.current_palette = self.palette[pallete_address as usize] & if self.registers.mask.greyscale { 0x30 } else { 0x3F };
+      &self.current_palette
     } else {
       panic!("Invalid address for PPU read: {:#04X}", address);
     }
@@ -515,14 +527,14 @@ impl PPU {
         self.registers.status.sprite_zero_hit = false;
 
         // Reset sprite shifter values
-        for i in 0..8 as usize {
-          self.sprite_shift_low[i] = 0;
-          self.sprite_shift_high[i] = 0;
-        }
+        self.sprite_shift_low.fill(0);
+        self.sprite_shift_high.fill(0);
 
         // Clear secondary OAM
         self.active_sprites.clear();
       }
+
+      let active_sprites_len = self.active_sprites.len();
 
       if (self.cycle_count >= 2 && self.cycle_count < 258) || (self.cycle_count >= 321 && self.cycle_count < 338) {
         // Update shifters
@@ -534,7 +546,7 @@ impl PPU {
         }
 
         if self.registers.mask.sprite_enable && self.cycle_count >= 1 && self.cycle_count < 258 {
-          for i in 0..self.active_sprites.len() {
+          for i in 0..active_sprites_len {
             if self.active_sprites[i].x > 0 {
               self.active_sprites[i].x -= 1;
             } else {
@@ -554,10 +566,10 @@ impl PPU {
             self.bg_attrib_shift_low = (self.bg_attrib_shift_low & 0xFF00) | if (self.bg_next_tile_attrib & 0b01) != 0 { 0xFF } else { 0 };
             self.bg_attrib_shift_high = (self.bg_attrib_shift_high & 0xFF00) | if (self.bg_next_tile_attrib & 0b10) != 0 { 0xFF } else { 0 };
 
-            self.bg_next_tile_id = self.ppu_read(0x2000 | (self.registers.internal.v.address & 0x0FFF));
+            self.bg_next_tile_id = *self.ppu_read(0x2000 | (self.registers.internal.v.address & 0x0FFF));
           },
           2 => {
-            self.bg_next_tile_attrib = self.ppu_read(0x23C0 | ((self.registers.internal.v.nametable_y as u16) << 11)
+            self.bg_next_tile_attrib = *self.ppu_read(0x23C0 | ((self.registers.internal.v.nametable_y as u16) << 11)
               | ((self.registers.internal.v.nametable_x as u16) << 10)
               | ((self.registers.internal.v.coarse_y as u16 >> 2) << 3)
               | (self.registers.internal.v.coarse_x as u16 >> 2));
@@ -572,12 +584,12 @@ impl PPU {
             self.bg_next_tile_attrib &= 0x03;
           },
           4 => {
-            self.bg_next_tile_lsb = self.ppu_read(((self.registers.ctrl.background_tile_select as u16) << 12)
+            self.bg_next_tile_lsb = *self.ppu_read(((self.registers.ctrl.background_tile_select as u16) << 12)
               + ((self.bg_next_tile_id as u16) << 4)
               + self.registers.internal.v.fine_y as u16);
           },
           6 => {
-            self.bg_next_tile_msb = self.ppu_read(((self.registers.ctrl.background_tile_select as u16) << 12)
+            self.bg_next_tile_msb = *self.ppu_read(((self.registers.ctrl.background_tile_select as u16) << 12)
               + ((self.bg_next_tile_id as u16) << 4)
               + self.registers.internal.v.fine_y as u16 + 8);
           },
@@ -632,7 +644,7 @@ impl PPU {
       }
 
       if self.cycle_count == 338 || self.cycle_count == 340 {
-        self.bg_next_tile_id = self.ppu_read(0x2000 | (self.registers.internal.v.address & 0x0FFF));
+        self.bg_next_tile_id = *self.ppu_read(0x2000 | (self.registers.internal.v.address & 0x0FFF));
       }
 
       if self.scanline_count == -1 && self.cycle_count >= 280 && self.cycle_count < 305 {
@@ -647,10 +659,8 @@ impl PPU {
       if self.cycle_count == 257 && self.scanline_count >= 0 {
         self.active_sprites.clear();
         self.sprite_count = 0;
-        for i in 0..8 as usize {
-          self.sprite_shift_low[i] = 0;
-          self.sprite_shift_high[i] = 0;
-        }
+        self.sprite_shift_low.fill(0);
+        self.sprite_shift_high.fill(0);
         self.sprite_zero_hit_possible = false;
 
         for i in 0..64 as usize {
@@ -676,7 +686,7 @@ impl PPU {
       }
 
       if self.cycle_count == 340 {
-        for i in 0..self.active_sprites.len() {
+        for i in 0..active_sprites_len {
           let mut sprite_pattern_bits_low: u8;
           let mut sprite_pattern_bits_high: u8;
           let sprite_pattern_address_low: u16;
@@ -722,8 +732,8 @@ impl PPU {
 
           sprite_pattern_address_high = sprite_pattern_address_low + 8;
 
-          sprite_pattern_bits_low = self.ppu_read(sprite_pattern_address_low);
-          sprite_pattern_bits_high = self.ppu_read(sprite_pattern_address_high);
+          sprite_pattern_bits_low = *self.ppu_read(sprite_pattern_address_low);
+          sprite_pattern_bits_high = *self.ppu_read(sprite_pattern_address_high);
 
           if self.active_sprites[i].attributes.flip_horizontally {
             sprite_pattern_bits_low = sprite_pattern_bits_low.reverse_bits();
@@ -854,7 +864,7 @@ impl PPU {
     }
   }
 
-  pub fn get_pattern_table(&self, index: u8) -> Vec<u8> {
+  pub fn get_pattern_table(&mut self, index: u8) -> Vec<u8> {
     let mut vec: Vec<u8> = Vec::new();
     vec.resize(0x4000, 0);
 
@@ -863,8 +873,8 @@ impl PPU {
         let offset: u16 = tile_y * 256 + tile_x * 16;
 
         for row in 0..8 {
-          let mut tile_lsb = self.ppu_read((index as u16 * 0x1000 + offset + row) as u16);
-          let mut tile_msb = self.ppu_read((index as u16 * 0x1000 + offset + row + 8) as u16);
+          let mut tile_lsb = *self.ppu_read((index as u16 * 0x1000 + offset + row) as u16);
+          let mut tile_msb = *self.ppu_read((index as u16 * 0x1000 + offset + row + 8) as u16);
           for col in 0..8 {
             let pixel = (tile_lsb & 0x01) + (tile_msb & 0x01);
             tile_lsb >>= 1;
