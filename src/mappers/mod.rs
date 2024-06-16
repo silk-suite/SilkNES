@@ -9,3 +9,4 @@ pub mod mapper11;
 pub mod mapper76;
 pub mod mapper89;
 pub mod mapper140;
+pub mod mapper152;
