@@ -6,3 +6,4 @@ pub mod mapper4;
 pub mod mapper7;
 pub mod mapper9;
 pub mod mapper11;
+pub mod mapper76;
