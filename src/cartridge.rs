@@ -9,6 +9,7 @@ use crate::mappers::{
   mapper2::Mapper2,
   mapper3::Mapper3,
   mapper4::Mapper4,
+  mapper7::Mapper7,
 };
 
 pub struct Cartridge {
@@ -37,6 +38,7 @@ impl Cartridge {
           2 => Box::new(Mapper2::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
           3 => Box::new(Mapper3::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
           4 => Box::new(Mapper4::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
+          7 => Box::new(Mapper7::new(header_info.prg_rom_size, header_info.chr_rom_size)) as Box<dyn Mapper>,
           _ => panic!("Mapper {} not implemented.", mapper_id),
         };
         let prg_start: u32 = 0x0010;
